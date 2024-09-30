@@ -9,7 +9,10 @@ editor: visual
 ```{r setup, message = FALSE, warning = FALSE, results = 'hide'}
 library(HDAnalyzeR)
 library(tidyverse)
-library(tidymodels)
+library(ggridges)
+library(vcd)
+library(reshape2)
+library(tidyheatmaps)
 ```
 
 # Import Data & Metadata
@@ -70,16 +73,55 @@ print(missing_in_data)
 
 ## Prepare metadata
 
+Check different values in specified metadata columns.
+
+```{r}
+metadata |> 
+  select(all_of(c("glucose.group", "carotidplaque", "CAC", "NAFLD", "MetS_NCEP"))) |> 
+  pivot_longer(everything(), names_to = "Variable", values_to = "Value") |> 
+  group_by(Variable, Value) |> 
+  summarise(Count = n(), .groups = 'drop') |> 
+  arrange(Variable) |> 
+  group_by(Variable) |> 
+  summarise(Summary = paste(Value, "(", Count, ")", collapse = ", ")) |> 
+  ungroup() |> 
+  mutate(Summary = paste(Variable, ":", Summary)) |> 
+  pull(Summary) |> 
+  cat(sep = "\n")
+```
+
+> In `glucose.group` - CGI: Combined Glucose Impairment (both impaired fasting glucose (IFG) and impaired glucose tolerance (IGT)). NGT: Normal Glucose Tolerance, highFINDRISC (lowFINDRISC): high (low) score on the FINDRISC (Finnish Diabetes Risk Score), T2D_new: Newly Diagnosed Type 2 Diabetes.
+
+> What are we going to do with `NA` and `NOT_APPLICABLE` values?
+
+> Should I separate the patients with T2D in different variables? Or the patients with carotid plague in only one or both vessels?
+
 Rename and modify the metadata columns.
 
 ```{r}
 metadata_preprocessed <- metadata |> 
   rename(Age = AgeAtVisitOne, Sex = Gender) |> 
   mutate(Age = Age |> as.numeric() |> floor()) |> 
-  mutate(Sex = if_else(Sex == "MALE", "M", "F"))
+  mutate(Sex = if_else(Sex == "MALE", "M", "F")) |> 
+  mutate(Obesity = if_else(BMI > 30, "YES", "NO"),
+         T2D = if_else(glucose.group == "T2D_new", "YES", "NO"),
+         carotidplaque = if_else(carotidplaque %in% c("NO_PLAQUE", "NOT_APPLICABLE"),
+                                 "NO", "YES")) |>
+  rename(MS = MetS_NCEP, 
+         MASLD = NAFLD,
+         Myocardial_infarction = cqhe002, 
+         Atrial_fibrillation = cqhe009,
+         Coronary_artery_intervention = cqhe017,
+         Stroke = cqhe029,
+         COPD = cqhe043,
+         Asthma = cqhe048,
+         Tuberculosis = cqhe055,
+         Sleep_apnea = cqhe058,
+         Celiac_disease = cqhe063,
+         Crohn = cqhe066)
 ```
 
-check if the metadata are similar with the manifest metadata for SCAPIS and IGT. Check for identity in Sex, Age and BMI columns.
+check if the metadata are similar with the manifest metadata for SCAPIS and IGT. Check for identity in Sex and Age columns.
 
 For both datasets the differences are that different DAids are present in the metadata and manifest metadata. The difference size is small however.
 
@@ -94,16 +136,15 @@ print(paste("DAids not present in Goran metadata (",
 
 check_metadata <- metadata_preprocessed |> 
   filter(DAid %in% scapis_DAid) |>
-  select(DAid, Sex, Age, BMI) |> 
-  left_join(metadata_scapis |> select(DAid, Sex, Age, BMI), by = "DAid") |> 
+  select(DAid, Sex, Age) |> 
+  left_join(metadata_scapis |> select(DAid, Sex, Age), by = "DAid") |> 
   filter(
     (Sex.x != Sex.y) | (is.na(Sex.x) != is.na(Sex.y)) |
-    (Age.x != Age.y) | (is.na(Age.x) != is.na(Age.y)) |
-    (BMI.x != BMI.y) | (is.na(BMI.x) != is.na(BMI.y))
+    (Age.x != Age.y) | (is.na(Age.x) != is.na(Age.y))
   )
 
 problem_samples <- check_metadata$DAid
-print(paste("DAids with different Sex, Age, BMI between Goran and manifest metadata (",
+print(paste("DAids with different Sex and Age between Goran and manifest metadata (",
             length(problem_samples), 
             "):", 
             toString(problem_samples)))
@@ -120,24 +161,124 @@ print(paste("DAids not present in Goran metadata (",
 
 check_metadata <- metadata_preprocessed |> 
   filter(DAid %in% igt_DAid) |>
-  select(DAid, Sex, Age, BMI) |> 
-  left_join(metadata_igt |> select(DAid, Sex, Age, BMI), by = "DAid") |> 
+  select(DAid, Sex, Age) |> 
+  left_join(metadata_igt |> select(DAid, Sex, Age), by = "DAid") |> 
   filter(
     (Sex.x != Sex.y) | (is.na(Sex.x) != is.na(Sex.y)) |
-    (Age.x != Age.y) | (is.na(Age.x) != is.na(Age.y)) |
-    (BMI.x != BMI.y) | (is.na(BMI.x) != is.na(BMI.y))
+    (Age.x != Age.y) | (is.na(Age.x) != is.na(Age.y))
   )
 
 problem_samples <- check_metadata$DAid
-print(paste("DAids with different Sex, Age, BMI between Goran and manifest metadata (",
+print(paste("DAids with different Sex and Age between Goran and manifest metadata (",
             length(problem_samples), 
             "):", 
             toString(problem_samples)))
 ```
 
+## Data QC
+
+All missing values are in 5 (SCAPIS) and 9 (IGT) samples, but still the maximum NA percentage is less than 25%. There are the typical clusters of correlated proteins in Olink data.
+
+```{r}
+qc_summary_data(data_scapis, threshold = 0.9)
+qc_summary_data(data_igt, threshold = 0.9)
+```
+
 ## Impute missing values
 
 ```{r}
-data_scapis_imputed <- impute_missForest(data_scapis, exclude_cols = "DAid")
-data_igt_imputed <- impute_missForest(data_igt, exclude_cols = "DAid")
+data_scapis_imputed <- impute_knn(data_scapis, exclude_cols = "DAid")
+data_igt_imputed <- impute_knn(data_igt, exclude_cols = "DAid")
 ```
+
+## Join data and metadata
+
+```{r}
+metadata_cols <- c("DAid", "Sex", "Age", "Smoke_status", "SBP_Mean", "DBP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT", "Hten_med", "Lipid_med", "Obesity", "glucose.group", "MS", "MASLD", "carotidplaque", "CAC")
+
+data_scapis_joined <- left_join(data_scapis_imputed, 
+                                metadata_preprocessed |> select(metadata_cols), 
+                                by = "DAid") |> 
+  select(DAid, all_of(metadata_cols), everything())
+
+data_igt_joined <- left_join(data_igt_imputed, 
+                             metadata_preprocessed |> select(metadata_cols), 
+                             by = "DAid") |>
+  select(DAid, all_of(metadata_cols), everything())
+```
+
+# Explorative Data Analysis
+
+Very similar distributions between the 2 datasets regarding both Sex and Age.
+
+```{r}
+metadata_preprocessed |> 
+  mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGT")) |> 
+  count(Sex, Cohort) |> 
+  ggplot(aes(x = n, y = Cohort, fill = Sex)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(x = "Number of samples", y = "") +
+  scale_fill_hpa("sex_hpa") + 
+  theme_hpa()
+
+metadata_preprocessed |> 
+  mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGT")) |> 
+  select(Age, Cohort) |> 
+  ggplot2::ggplot(ggplot2::aes(x = Age, y = Cohort, fill = Cohort)) +
+  geom_density_ridges2(quantile_lines = TRUE, alpha = 0.7, quantiles = 2, scale = 1) +
+  labs(x = "Age", y = "") +
+  theme_hpa() +
+  theme(legend.position = "none")
+```
+
+Number of diseases in the 2 datasets.
+
+```{r}
+disease_cols <- c("Obesity", "T2D", "MS", "MASLD", "Myocardial_infarction", "Atrial_fibrillation", "Coronary_artery_intervention", "Stroke", "COPD", "Asthma", "Tuberculosis", "Sleep_apnea", "Celiac_disease", "Crohn")
+
+metadata_preprocessed |> 
+  mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGT")) |> 
+  select(DAid, Cohort, all_of(disease_cols)) |> 
+  pivot_longer(cols = -c("DAid", "Cohort"), names_to = "Disease", values_to = "Status") |>
+  filter(Status != "NO") |> 
+  count(Disease, Cohort) |> 
+  ggplot(aes(x = n, y = Disease)) +
+  geom_col() +
+  geom_text(aes(label = n), vjust = 0.1, hjust = -0.5, color = "black", size = 3) +
+  labs(x = "Number of samples", y = "") +
+  facet_wrap(~Cohort, scales = "free_y", nrow = 2) +
+  theme_hpa()
+```
+
+Check the correlation between the different disease classes.
+
+> Not ready yet.
+
+```{r}
+cor_matrix <- matrix(NA, nrow = length(disease_cols), ncol = length(disease_cols))
+rownames(cor_matrix) <- disease_cols
+colnames(cor_matrix) <- disease_cols
+
+for (i in 1:length(disease_cols)) {
+  for (j in 1:length(disease_cols)) {
+    if (i != j) {
+      contingency_table <- table(metadata_preprocessed[[disease_cols[i]]],
+                                 metadata_preprocessed[[disease_cols[j]]])
+      cor_matrix[i, j] <- assocstats(contingency_table)$cramer
+    }
+  }
+}
+
+cor_diseases <- melt(cor_matrix, na.rm = TRUE)
+colnames(cor_diseases) <- c("Var1", "Var2", "CramersV")
+
+tidyheatmap(df = cor_diseases,
+            rows = Var1,
+            columns = Var2,
+            values = CramersV,
+            cluster_rows = TRUE,
+            cluster_cols = TRUE,
+            treeheight_row = 0,
+            treeheight_col = 0)
+```
+
