@@ -12,7 +12,7 @@ library(tidyverse)
 library(tidymodels)
 ```
 
-# Input Data & Metadata
+# Import Data & Metadata
 
 ```{r, message = FALSE, results = 'hide'}
 long_data <- import_df("data/raw_data/IGT_SCAPIS_preprocessed_data.tsv")
@@ -45,6 +45,29 @@ data_scapis <- widen_data(data_scapis)
 data_igt <- widen_data(data_igt)
 ```
 
+See if the DAids of the data match the DAids of the metadata (both Goran's and manifest).
+
+Check which DAids are different (if any) between the manifest metadata and the data.
+
+```{r}
+manifest_metadata <- rbind(metadata_scapis, metadata_igt)
+missing_in_metadata <- setdiff(long_data$DAid, manifest_metadata$DAid)
+print(missing_in_metadata)
+
+missing_in_data <- setdiff(manifest_metadata$DAid, long_data$DAid)
+print(missing_in_data)
+```
+
+Check which DAids are different (if any) between the Goran's metadata and the data.
+
+```{r}
+missing_in_metadata <- setdiff(long_data$DAid, metadata$DAid)
+print(missing_in_metadata)
+
+missing_in_data <- setdiff(metadata$DAid, long_data$DAid)
+print(missing_in_data)
+```
+
 ## Prepare metadata
 
 Rename and modify the metadata columns.
@@ -56,7 +79,7 @@ metadata_preprocessed <- metadata |>
   mutate(Sex = if_else(Sex == "MALE", "M", "F"))
 ```
 
-check if the metadata are similar with the manifest metadata for SCAPIS and IGT.
+check if the metadata are similar with the manifest metadata for SCAPIS and IGT. Check for identity in Sex, Age and BMI columns.
 
 For both datasets the differences are that different DAids are present in the metadata and manifest metadata. The difference size is small however.
 
@@ -112,3 +135,9 @@ print(paste("DAids with different Sex, Age, BMI between Goran and manifest metad
             toString(problem_samples)))
 ```
 
+## Impute missing values
+
+```{r}
+data_scapis_imputed <- impute_missForest(data_scapis, exclude_cols = "DAid")
+data_igt_imputed <- impute_missForest(data_igt, exclude_cols = "DAid")
+```
