@@ -107,7 +107,7 @@ Rename and modify the metadata columns.
 - Convert carotidplaque to binary (NO/YES).
 - Create Obesity (BMI > 30) and IGT (glucose.group %in% c("CGI", "IFG", "IGT", "T2D_new")) columns.
 - Rename multiple columns to make them easier to understand.
-- 01 encoding for the disease columns.
+- 0-1 encoding for the disease columns.
 
 ```{r}
 metadata_preprocessed <- metadata |> 
@@ -358,7 +358,7 @@ corrplot(cor_matrix,
          hclust.method = "ward.D2")
 ```
 
-# UMAP
+## UMAP
 
 There are no extreme outliers at all. There is a small cluster of points bellow. There is no separation with most the parameters. There might be a small separation with BMI/Obesity.
 
