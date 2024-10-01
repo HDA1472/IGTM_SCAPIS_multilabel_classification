@@ -10,9 +10,8 @@ editor: visual
 library(HDAnalyzeR)
 library(tidyverse)
 library(ggridges)
-library(vcd)
-library(reshape2)
 library(tidyheatmaps)
+library(corrplot)
 ```
 
 # Import Data & Metadata
@@ -37,8 +36,6 @@ igt_DAid <- metadata_igt$DAid |> unique()
 ```
 
 Separate data and make them wide.
-
-> Should I filter Assays or Runs before?
 
 ```{r}
 data_scapis <- long_data |> filter(DAid %in% scapis_DAid)
@@ -73,7 +70,7 @@ print(missing_in_data)
 
 ## Prepare metadata
 
-Check different values in specified metadata columns.
+Check different values in specified metadata columns. For the missing values we are going to check if they are coexisting in the same patients. For carotid plaque we are going to make it binary (YES/NO). For the glucose group we are going to make a binary variable called impaired glucose tolerance (NO - patients with T2D, IGT, CGI, IFG, YES - all others).
 
 ```{r}
 metadata |> 
@@ -92,22 +89,31 @@ metadata |>
 
 > In `glucose.group` - CGI: Combined Glucose Impairment (both impaired fasting glucose (IFG) and impaired glucose tolerance (IGT)). NGT: Normal Glucose Tolerance, highFINDRISC (lowFINDRISC): high (low) score on the FINDRISC (Finnish Diabetes Risk Score), T2D_new: Newly Diagnosed Type 2 Diabetes.
 
-> What are we going to do with `NA` and `NOT_APPLICABLE` values?
+Check for NA overlap.
 
-> Should I separate the patients with T2D in different variables? Or the patients with carotid plague in only one or both vessels?
+```{r}
+metadata |> 
+  rowwise() |> 
+  mutate(carotidplaque = if_else(carotidplaque == "NOT_APPLICABLE", NA, carotidplaque)) |> 
+  mutate(NA_count = sum(is.na(across(all_of(c("CAC", "carotidplaque", "NAFLD", "MetS_NCEP", "glucose.group")))))) |> 
+  ungroup() |> 
+  filter(NA_count > 0) |> 
+  select(DAid, NA_count) |> 
+  arrange(desc(NA_count))
+```
 
 Rename and modify the metadata columns.
+- Convert Sex from MALE/FEMALE to M/F.
+- Convert carotidplaque to binary (NO/YES).
+- Create Obesity (BMI > 30) and IGT (glucose.group %in% c("CGI", "IFG", "IGT", "T2D_new")) columns.
+- Rename multiple columns to make them easier to understand.
+- 01 encoding for the disease columns.
 
 ```{r}
 metadata_preprocessed <- metadata |> 
-  rename(Age = AgeAtVisitOne, Sex = Gender) |> 
-  mutate(Age = Age |> as.numeric() |> floor()) |> 
-  mutate(Sex = if_else(Sex == "MALE", "M", "F")) |> 
-  mutate(Obesity = if_else(BMI > 30, "YES", "NO"),
-         T2D = if_else(glucose.group == "T2D_new", "YES", "NO"),
-         carotidplaque = if_else(carotidplaque %in% c("NO_PLAQUE", "NOT_APPLICABLE"),
-                                 "NO", "YES")) |>
-  rename(MS = MetS_NCEP, 
+  rename(Age = AgeAtVisitOne, 
+         Sex = Gender,
+         MS = MetS_NCEP, 
          MASLD = NAFLD,
          Myocardial_infarction = cqhe002, 
          Atrial_fibrillation = cqhe009,
@@ -118,7 +124,28 @@ metadata_preprocessed <- metadata |>
          Tuberculosis = cqhe055,
          Sleep_apnea = cqhe058,
          Celiac_disease = cqhe063,
-         Crohn = cqhe066)
+         Crohn = cqhe066,
+         Rheumatic_disease = cqhe069) |> 
+  mutate(Age = Age |> as.numeric() |> floor()) |> 
+  mutate(Sex = if_else(Sex == "MALE", "M", "F")) |> 
+  mutate(carotidplaque = if_else(carotidplaque == "NOT_APPLICABLE", NA, carotidplaque)) |> 
+  mutate(Obesity = if_else(BMI > 30, 1, 0),
+         IGT = if_else(glucose.group %in% c("CGI", "IFG", "IGT", "T2D_new"), 1, 0),
+         carotidplaque = if_else(carotidplaque %in% c("NO_PLAQUE"), 0, 1),
+         MS = if_else(MS == "YES", 1, 0),
+         MASLD = if_else(MASLD == "YES", 1, 0),
+         CAC = if_else(CAC == "YES", 1, 0),
+         Myocardial_infarction = if_else(Myocardial_infarction == "YES", 1, 0),
+         Atrial_fibrillation = if_else(Atrial_fibrillation == "YES", 1, 0),
+         Coronary_artery_intervention = if_else(Coronary_artery_intervention == "YES", 1, 0),
+         Stroke = if_else(Stroke == "YES", 1, 0),
+         COPD = if_else(COPD == "YES", 1, 0),
+         Asthma = if_else(Asthma == "YES", 1, 0),
+         Tuberculosis = if_else(Tuberculosis == "YES", 1, 0),
+         Sleep_apnea = if_else(Sleep_apnea == "YES", 1, 0),
+         Celiac_disease = if_else(Celiac_disease == "YES", 1, 0),
+         Crohn = if_else(Crohn == "YES", 1, 0),
+         Rheumatic_disease = if_else(Rheumatic_disease == "YES", 1, 0))
 ```
 
 check if the metadata are similar with the manifest metadata for SCAPIS and IGT. Check for identity in Sex and Age columns.
@@ -187,22 +214,22 @@ qc_summary_data(data_igt, threshold = 0.9)
 ## Impute missing values
 
 ```{r}
-data_scapis_imputed <- impute_knn(data_scapis, exclude_cols = "DAid")
-data_igt_imputed <- impute_knn(data_igt, exclude_cols = "DAid")
+data_scapis_imputed <- impute_knn(data_scapis, exclude_cols = "DAid", show_na_percentage = FALSE)
+data_igt_imputed <- impute_knn(data_igt, exclude_cols = "DAid", show_na_percentage = FALSE)
 ```
 
 ## Join data and metadata
 
 ```{r}
-metadata_cols <- c("DAid", "Sex", "Age", "Smoke_status", "SBP_Mean", "DBP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT", "Hten_med", "Lipid_med", "Obesity", "glucose.group", "MS", "MASLD", "carotidplaque", "CAC")
+metadata_cols <- c("DAid", "Sex", "Age", "Smoke_status", "SBP_Mean", "DBP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT", "Hten_med", "Lipid_med", "Obesity", "IGT", "MS", "MASLD", "carotidplaque", "CAC")
 
 data_scapis_joined <- left_join(data_scapis_imputed, 
-                                metadata_preprocessed |> select(metadata_cols), 
+                                metadata_preprocessed |> select(all_of(metadata_cols)), 
                                 by = "DAid") |> 
   select(DAid, all_of(metadata_cols), everything())
 
 data_igt_joined <- left_join(data_igt_imputed, 
-                             metadata_preprocessed |> select(metadata_cols), 
+                             metadata_preprocessed |> select(all_of(metadata_cols)), 
                              by = "DAid") |>
   select(DAid, all_of(metadata_cols), everything())
 ```
@@ -234,13 +261,13 @@ metadata_preprocessed |>
 Number of diseases in the 2 datasets.
 
 ```{r}
-disease_cols <- c("Obesity", "T2D", "MS", "MASLD", "Myocardial_infarction", "Atrial_fibrillation", "Coronary_artery_intervention", "Stroke", "COPD", "Asthma", "Tuberculosis", "Sleep_apnea", "Celiac_disease", "Crohn")
+disease_cols <- c("Obesity", "MS", "MASLD", "CAC", "carotidplaque", "Myocardial_infarction", "Atrial_fibrillation", "Coronary_artery_intervention", "Stroke", "COPD", "Asthma", "Tuberculosis", "Sleep_apnea", "Celiac_disease", "Crohn", "Rheumatic_disease", "IGT")
 
 metadata_preprocessed |> 
   mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGT")) |> 
   select(DAid, Cohort, all_of(disease_cols)) |> 
   pivot_longer(cols = -c("DAid", "Cohort"), names_to = "Disease", values_to = "Status") |>
-  filter(Status != "NO") |> 
+  filter(Status != 0) |> 
   count(Disease, Cohort) |> 
   ggplot(aes(x = n, y = Disease)) +
   geom_col() +
@@ -250,35 +277,188 @@ metadata_preprocessed |>
   theme_hpa()
 ```
 
-Check the correlation between the different disease classes.
+Check the correlation between the different disease classes. We see a big block. Myocardial infarction and coronary artery intervention are highly correlated and into the block but they only have few samples each (around 20 in each cohort).
 
-> Not ready yet.
+> Sleep apnea might be a decent disease with decent sample size to be considered.
 
 ```{r}
-cor_matrix <- matrix(NA, nrow = length(disease_cols), ncol = length(disease_cols))
-rownames(cor_matrix) <- disease_cols
-colnames(cor_matrix) <- disease_cols
+cor_matrix <- metadata_preprocessed |> 
+  select(all_of(disease_cols)) |> 
+  cor(use = "pairwise.complete.obs", method = "spearman") |> 
+  round(2)
 
-for (i in 1:length(disease_cols)) {
-  for (j in 1:length(disease_cols)) {
-    if (i != j) {
-      contingency_table <- table(metadata_preprocessed[[disease_cols[i]]],
-                                 metadata_preprocessed[[disease_cols[j]]])
-      cor_matrix[i, j] <- assocstats(contingency_table)$cramer
-    }
-  }
-}
-
-cor_diseases <- melt(cor_matrix, na.rm = TRUE)
-colnames(cor_diseases) <- c("Var1", "Var2", "CramersV")
-
-tidyheatmap(df = cor_diseases,
-            rows = Var1,
-            columns = Var2,
-            values = CramersV,
-            cluster_rows = TRUE,
-            cluster_cols = TRUE,
-            treeheight_row = 0,
-            treeheight_col = 0)
+corrplot(cor_matrix, 
+         method = "square",  
+         tl.srt = 45,
+         tl.col = "black",
+         order = "hclust",
+         hclust.method = "ward.D2") 
 ```
 
+> Maybe also Asthma?
+
+```{r}
+# SCAPIS
+metadata_preprocessed |> 
+  mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGT")) |> 
+  filter(Cohort == "SCAPIS") |>
+  select(DAid, Cohort, Sex, Age, BMI, all_of(disease_cols)) |> 
+  pivot_longer(cols = -c("DAid", "Cohort", "Sex", "Age", "BMI"), names_to = "Disease", values_to = "Status") |> 
+  tidyheatmap(
+    rows = Disease,
+    columns = DAid,
+    values = Status,
+    colors = c("lightgrey", "red"),
+    annotation_col = c(Age, Sex, BMI),
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    legend_breaks = c(0, 1),
+    legend_labels = c("NO", "YES"),
+    show_colnames = FALSE,
+    clustering_method = "ward.D2")
+```
+
+```{r}
+# IGT
+metadata_preprocessed |> 
+  mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGT")) |> 
+  filter(Cohort == "IGT") |>
+  select(DAid, Cohort, Sex, Age, BMI, all_of(disease_cols)) |> 
+  pivot_longer(cols = -c("DAid", "Cohort", "Sex", "Age", "BMI"), names_to = "Disease", values_to = "Status") |> 
+  tidyheatmap(
+    rows = Disease,
+    columns = DAid,
+    values = Status,
+    colors = c("lightgrey", "red"),
+    annotation_col = c(Age, Sex, BMI),
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    legend_breaks = c(0, 1),
+    legend_labels = c("NO", "YES"),
+    show_colnames = FALSE,
+    clustering_method = "ward.D2")
+```
+
+Correlate other metadata with the diseases. From this plot however sleep apnea and asthma look irrelevant...
+
+```{r}
+metadata_cols <- c("Obesity", "MS", "MASLD", "CAC", "carotidplaque", "Myocardial_infarction", "Atrial_fibrillation", "Coronary_artery_intervention", "Stroke", "COPD", "Asthma", "Tuberculosis", "Sleep_apnea", "Celiac_disease", "Crohn", "Rheumatic_disease", "IGT", "Weight", "BMI", "Waist", "SBP_Mean", "DBP_Mean", "Glucose", "HbA1c", "HOMA_IR", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT", "Sex", "Age")
+
+cor_matrix <- metadata_preprocessed |> 
+  select(all_of(metadata_cols)) |> 
+  mutate(Sex = if_else(Sex == "F", 1, 0)) |> 
+  cor(use = "pairwise.complete.obs", method = "spearman") |> 
+  round(2)
+
+corrplot(cor_matrix, 
+         method = "square",  
+         tl.srt = 45,
+         tl.col = "black",
+         order = "hclust",
+         hclust.method = "ward.D2")
+```
+
+# UMAP
+
+There are no extreme outliers at all. There is a small cluster of points bellow. There is no separation with most the parameters. There might be a small separation with BMI/Obesity.
+
+Check if there are Cohort effects.
+
+```{r}
+all_data_imputed <- rbind(data_scapis_imputed, data_igt_imputed)
+do_umap(all_data_imputed, 
+        metadata_preprocessed |>
+          mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGT")),
+        color = "Cohort")
+```
+
+Check for sex, age and BMI effects.
+
+```{r}
+do_umap(all_data_imputed, 
+        metadata_preprocessed,
+        color = "Sex",
+        palette = "sex_hpa")
+```
+
+```{r}
+do_umap(all_data_imputed, 
+        metadata_preprocessed,
+        color = "Age")
+```
+
+```{r}
+do_umap(all_data_imputed, 
+        metadata_preprocessed,
+        color = "BMI")
+```
+
+Check CAC, Obesity, Carotid plaque and Glucose groups clusters.
+
+```{r}
+do_umap(all_data_imputed, 
+        metadata_preprocessed |> mutate(CAC = if_else(CAC == 1, "YES", "NO")),
+        color = "CAC")
+```
+
+```{r}
+do_umap(all_data_imputed, 
+        metadata_preprocessed |> mutate(Obesity = if_else(Obesity == 1, "YES", "NO")),
+        color = "Obesity")
+```
+
+```{r}
+do_umap(all_data_imputed, 
+        metadata_preprocessed |> mutate(carotidplaque = if_else(carotidplaque == 1, "YES", "NO")),
+        color = "carotidplaque")
+```
+
+```{r}
+do_umap(all_data_imputed, 
+        metadata_preprocessed,
+        color = "glucose.group")
+```
+
+# Processed the Joined Datasets
+
+Check for NAs in metadata columns of joined datasets.
+
+```{r}
+na_count_scapis <- colSums(is.na(data_scapis_final))
+na_count_scapis[na_count_scapis > 0]
+
+na_count_igt <- colSums(is.na(data_igt_final))
+na_count_igt[na_count_igt > 0]
+```
+
+Remove rows containing NA values in diseases of interest, Sex and Age. We lost 75 patients from SCAPIS cohort.
+
+```{r}
+print(paste("Before NA removal we had:", nrow(data_scapis_joined), "patients in SCAPIS"))
+data_scapis_final <- data_scapis_joined |> 
+  filter(!is.na(Obesity), 
+         !is.na(MS), 
+         !is.na(MASLD), 
+         !is.na(CAC),
+         !is.na(IGT),
+         !is.na(Sex), 
+         !is.na(Age))
+
+print(paste("After NA removal we have:", nrow(data_scapis_final), "patients in SCAPIS"))
+```
+
+```{r}
+print(paste("Before NA removal we had:", nrow(data_igt_final), "patients in IGT"))
+data_igt_final <- data_igt_joined |> 
+  filter(!is.na(Obesity), 
+         !is.na(MS), 
+         !is.na(MASLD), 
+         !is.na(CAC),
+         !is.na(IGT),
+         !is.na(Sex), 
+         !is.na(Age))
+
+print(paste("After NA removal we have:", nrow(data_igt_final), "patients in IGT"))
+```
+
+# Save Data
