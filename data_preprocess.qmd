@@ -74,7 +74,7 @@ Check different values in specified metadata columns. For the missing values we 
 
 ```{r}
 metadata |> 
-  select(all_of(c("glucose.group", "carotidplaque", "CAC", "NAFLD", "MetS_NCEP"))) |> 
+  select(all_of(c("glucose.group", "carotidplaque", "CAC", "NAFLD", "MetS_NCEP", "cqhe058"))) |> 
   pivot_longer(everything(), names_to = "Variable", values_to = "Value") |> 
   group_by(Variable, Value) |> 
   summarise(Count = n(), .groups = 'drop') |> 
@@ -95,7 +95,7 @@ Check for NA overlap.
 metadata |> 
   rowwise() |> 
   mutate(carotidplaque = if_else(carotidplaque == "NOT_APPLICABLE", NA, carotidplaque)) |> 
-  mutate(NA_count = sum(is.na(across(all_of(c("CAC", "carotidplaque", "NAFLD", "MetS_NCEP", "glucose.group")))))) |> 
+  mutate(NA_count = sum(is.na(across(all_of(c("CAC", "carotidplaque", "NAFLD", "MetS_NCEP", "glucose.group", "cqhe058")))))) |> 
   ungroup() |> 
   filter(NA_count > 0) |> 
   select(DAid, NA_count) |> 
@@ -129,6 +129,7 @@ metadata_preprocessed <- metadata |>
   mutate(Age = Age |> as.numeric() |> floor()) |> 
   mutate(Sex = if_else(Sex == "MALE", "M", "F")) |> 
   mutate(carotidplaque = if_else(carotidplaque == "NOT_APPLICABLE", NA, carotidplaque)) |> 
+  mutate(across(everything(), ~ ifelse(. == "", NA, .))) |> 
   mutate(Obesity = if_else(BMI > 30, 1, 0),
          IGT = if_else(glucose.group %in% c("CGI", "IFG", "IGT", "T2D_new"), 1, 0),
          carotidplaque = if_else(carotidplaque %in% c("NO_PLAQUE"), 0, 1),
@@ -211,24 +212,17 @@ All missing values are in 5 (SCAPIS) and 9 (IGT) samples, but still the maximum 
 # qc_summary_data(data_igt, threshold = 0.9)
 ```
 
-## Impute missing values
-
-```{r}
-data_scapis_imputed <- impute_knn(data_scapis, exclude_cols = "DAid", show_na_percentage = FALSE)
-data_igt_imputed <- impute_knn(data_igt, exclude_cols = "DAid", show_na_percentage = FALSE)
-```
-
 ## Join data and metadata
 
 ```{r}
-metadata_cols <- c("DAid", "Sex", "Age", "Smoke_status", "SBP_Mean", "DBP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT", "Hten_med", "Lipid_med", "Obesity", "IGT", "MS", "MASLD", "carotidplaque", "CAC")
+metadata_cols <- c("DAid", "Sex", "Age", "Smoke_status", "SBP_Mean", "DBP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT", "Hten_med", "Lipid_med", "Obesity", "IGT", "MS", "MASLD", "carotidplaque", "CAC", "Sleep_apnea")
 
-data_scapis_joined <- left_join(data_scapis_imputed, 
+data_scapis_joined <- left_join(data_scapis, 
                                 metadata_preprocessed |> select(all_of(metadata_cols)), 
                                 by = "DAid") |> 
   select(DAid, all_of(metadata_cols), everything())
 
-data_igt_joined <- left_join(data_igt_imputed, 
+data_igt_joined <- left_join(data_igt, 
                              metadata_preprocessed |> select(all_of(metadata_cols)), 
                              by = "DAid") |>
   select(DAid, all_of(metadata_cols), everything())
@@ -279,8 +273,6 @@ metadata_preprocessed |>
 
 Check the correlation between the different disease classes. We see a big block. Myocardial infarction and coronary artery intervention are highly correlated and into the block but they only have few samples each (around 20 in each cohort).
 
-> Sleep apnea might be a decent disease with decent sample size to be considered.
-
 ```{r}
 cor_matrix <- metadata_preprocessed |> 
   select(all_of(disease_cols)) |> 
@@ -294,8 +286,6 @@ corrplot(cor_matrix,
          order = "hclust",
          hclust.method = "ward.D2") 
 ```
-
-> Maybe also Asthma?
 
 ```{r}
 # SCAPIS
@@ -342,10 +332,10 @@ metadata_preprocessed |>
 Correlate other metadata with the diseases. From this plot however sleep apnea and asthma look irrelevant...
 
 ```{r}
-metadata_cols <- c("Obesity", "MS", "MASLD", "CAC", "carotidplaque", "Myocardial_infarction", "Atrial_fibrillation", "Coronary_artery_intervention", "Stroke", "COPD", "Asthma", "Tuberculosis", "Sleep_apnea", "Celiac_disease", "Crohn", "Rheumatic_disease", "IGT", "Weight", "BMI", "Waist", "SBP_Mean", "DBP_Mean", "Glucose", "HbA1c", "HOMA_IR", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT", "Sex", "Age")
+all_metadata_cols <- c("Obesity", "MS", "MASLD", "CAC", "carotidplaque", "Sleep_apnea", "IGT", "Weight", "BMI", "Waist", "SBP_Mean", "DBP_Mean", "Glucose", "HbA1c", "HOMA_IR", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT", "Sex", "Age")
 
 cor_matrix <- metadata_preprocessed |> 
-  select(all_of(metadata_cols)) |> 
+  select(all_of(all_metadata_cols)) |> 
   mutate(Sex = if_else(Sex == "F", 1, 0)) |> 
   cor(use = "pairwise.complete.obs", method = "spearman") |> 
   round(2)
@@ -365,8 +355,8 @@ There are no extreme outliers at all. There is a small cluster of points bellow.
 Check if there are Cohort effects.
 
 ```{r}
-all_data_imputed <- rbind(data_scapis_imputed, data_igt_imputed)
-do_umap(all_data_imputed, 
+all_data <- rbind(data_scapis, data_igt)
+do_umap(all_data, 
         metadata_preprocessed |>
           mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGT")),
         color = "Cohort")
@@ -375,16 +365,16 @@ do_umap(all_data_imputed,
 Check for sex, age and BMI effects.
 
 ```{r}
-# do_umap(all_data_imputed, 
+# do_umap(all_data, 
 #         metadata_preprocessed,
 #         color = "Sex",
 #         palette = "sex_hpa")
 # 
-# do_umap(all_data_imputed, 
+# do_umap(all_data, 
 #         metadata_preprocessed,
 #         color = "Age")
 # 
-# do_umap(all_data_imputed, 
+# do_umap(all_data, 
 #         metadata_preprocessed,
 #         color = "BMI")
 ```
@@ -392,19 +382,19 @@ Check for sex, age and BMI effects.
 Check CAC, Obesity, Carotid plaque and Glucose groups clusters.
 
 ```{r}
-# do_umap(all_data_imputed, 
+# do_umap(all_data, 
 #         metadata_preprocessed |> mutate(CAC = if_else(CAC == 1, "YES", "NO")),
 #         color = "CAC")
 # 
-# do_umap(all_data_imputed, 
+# do_umap(all_data, 
 #         metadata_preprocessed |> mutate(Obesity = if_else(Obesity == 1, "YES", "NO")),
 #         color = "Obesity")
 # 
-# do_umap(all_data_imputed, 
+# do_umap(all_data, 
 #         metadata_preprocessed |> mutate(carotidplaque = if_else(carotidplaque == 1, "YES", "NO")),
 #         color = "carotidplaque")
 # 
-# do_umap(all_data_imputed, 
+# do_umap(all_data, 
 #         metadata_preprocessed,
 #         color = "glucose.group")
 ```
@@ -414,16 +404,16 @@ Check CAC, Obesity, Carotid plaque and Glucose groups clusters.
 Check for NAs in metadata columns of joined datasets.
 
 ```{r}
-na_count_scapis <- colSums(is.na(data_scapis_joined))
+na_count_scapis <- colSums(is.na(data_scapis_joined |> select(all_of(metadata_cols))))
 print("SCAPIS")
 na_count_scapis[na_count_scapis > 0]
 
 print("IGT")
-na_count_igt <- colSums(is.na(data_igt_joined))
+na_count_igt <- colSums(is.na(data_igt_joined |> select(all_of(metadata_cols))))
 na_count_igt[na_count_igt > 0]
 ```
 
-Remove rows containing NA values in diseases of interest, Sex and Age. We lost 75 patients from SCAPIS cohort and 34 from IGT.
+Remove rows containing NA values in diseases of interest, Sex and Age. We lost 87 patients from SCAPIS cohort and 39 from IGT.
 
 ```{r}
 print(paste("Before NA removal we had:", nrow(data_scapis_joined), "patients in SCAPIS"))
@@ -432,11 +422,13 @@ data_scapis_final <- data_scapis_joined |>
          !is.na(MS), 
          !is.na(MASLD), 
          !is.na(CAC),
+         !is.na(carotidplaque),
          !is.na(IGT),
+         !is.na(Sleep_apnea),
          !is.na(Sex), 
          !is.na(Age))
 
-print(paste("After NA removal we have:", nrow(data_scapis_final), "patients in SCAPIS"))
+print(paste("After NA removal we have:", nrow(data_scapis_final), "patients in SCAPIS"))  # We lost 77 patients
 ```
 
 ```{r}
@@ -446,11 +438,22 @@ data_igt_final <- data_igt_joined |>
          !is.na(MS), 
          !is.na(MASLD), 
          !is.na(CAC),
+         !is.na(carotidplaque),
          !is.na(IGT),
+         !is.na(Sleep_apnea),
          !is.na(Sex), 
          !is.na(Age))
 
-print(paste("After NA removal we have:", nrow(data_igt_final), "patients in IGT"))
+print(paste("After NA removal we have:", nrow(data_igt_final), "patients in IGT"))  # We lost 39 patients
+```
+
+## Impute missing values
+
+Impute the rest of metadata missing values together with Olink values using KNN imputation (k = 5).
+
+```{r}
+data_scapis_imputed <- impute_knn(data_scapis_final, exclude_cols = "DAid", show_na_percentage = FALSE)
+data_igt_imputed <- impute_knn(data_igt_final, exclude_cols = "DAid", show_na_percentage = FALSE)
 ```
 
 # Save Data
