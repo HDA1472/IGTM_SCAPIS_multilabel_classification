@@ -459,7 +459,7 @@ data_igt_imputed <- impute_knn(data_igt_final, exclude_cols = "DAid", show_na_pe
 # Save Data
 
 ```{r}
-save_df(data_scapis_final, "scapis_joined_preprocessed", "data/processed_data", file_type = c("rda"))
-save_df(data_igt_final, "igt_joined_preprocessed", "data/processed_data", file_type = c("rda"))
+save_df(data_scapis_imputed, "scapis_joined_preprocessed", "data/processed_data", file_type = c("rda"))
+save_df(data_igt_imputed, "igt_joined_preprocessed", "data/processed_data", file_type = c("rda"))
 save_df(metadata_preprocessed, "metadata_preprocessed", "data/processed_data", file_type = c("rda"))
 ```
