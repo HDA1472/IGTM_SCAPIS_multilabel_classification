@@ -215,7 +215,7 @@ All missing values are in 5 (SCAPIS) and 9 (IGT) samples, but still the maximum 
 ## Join data and metadata
 
 ```{r}
-metadata_cols <- c("DAid", "Sex", "Age", "Smoke_status", "SBP_Mean", "DBP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT", "Hten_med", "Lipid_med", "Obesity", "IGT", "MS", "MASLD", "carotidplaque", "CAC", "Sleep_apnea")
+metadata_cols <- c("DAid", "Sex", "Age", "Smoke_status", "SBP_Mean", "DBP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT", "Obesity", "IGT", "MS", "MASLD", "carotidplaque", "CAC", "Sleep_apnea")
 
 data_scapis_joined <- left_join(data_scapis, 
                                 metadata_preprocessed |> select(all_of(metadata_cols)), 
