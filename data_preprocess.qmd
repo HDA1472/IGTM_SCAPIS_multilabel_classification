@@ -103,16 +103,24 @@ metadata |>
 ```
 
 Rename and modify the metadata columns.
-- Convert Sex from MALE/FEMALE to M/F.
-- Convert carotidplaque to binary (NO/YES).
-- Create Obesity (BMI > 30) and IGT (glucose.group %in% c("CGI", "IFG", "IGT", "T2D_new")) columns.
-- Rename multiple columns to make them easier to understand.
-- 0-1 encoding for the disease columns.
+
+-   Convert Sex from MALE/FEMALE to M/F
+
+-   Convert carotidplaque to binary (NO/YES)
+
+-   Create Obesity (BMI \> 30), T2D (glucose.group == "T2D_new") and IGT (glucose.group %in% c("CGI", "IFG", "IGT", "T2D_new")) columns
+
+-   Create MAP (Mean Arterial Pressure) from Systolic (SBP_mean) and Diastolic (DBP_mean) blood pressure
+
+-   Rename multiple columns to make them easier to understand
+
+-   0-1 encoding for the disease columns
 
 ```{r}
 metadata_preprocessed <- metadata |> 
   rename(Age = AgeAtVisitOne, 
          Sex = Gender,
+         Carotid_plaque = carotidplaque,
          MS = MetS_NCEP, 
          MASLD = NAFLD,
          Myocardial_infarction = cqhe002, 
@@ -128,11 +136,13 @@ metadata_preprocessed <- metadata |>
          Rheumatic_disease = cqhe069) |> 
   mutate(Age = Age |> as.numeric() |> floor()) |> 
   mutate(Sex = if_else(Sex == "MALE", "M", "F")) |> 
-  mutate(carotidplaque = if_else(carotidplaque == "NOT_APPLICABLE", NA, carotidplaque)) |> 
+  mutate(Carotid_plaque = if_else(Carotid_plaque == "NOT_APPLICABLE", NA, Carotid_plaque)) |> 
   mutate(across(everything(), ~ ifelse(. == "", NA, .))) |> 
-  mutate(Obesity = if_else(BMI > 30, 1, 0),
+  mutate(MAP_Mean = round(1/3 * SBP_Mean + 2/3 * DBP_Mean, 0),
+         Obesity = if_else(BMI > 30, 1, 0),
          IGT = if_else(glucose.group %in% c("CGI", "IFG", "IGT", "T2D_new"), 1, 0),
-         carotidplaque = if_else(carotidplaque %in% c("NO_PLAQUE"), 0, 1),
+         T2D = if_else(glucose.group == "T2D_new", 1, 0),
+         Carotid_plaque = if_else(Carotid_plaque %in% c("NO_PLAQUE"), 0, 1),
          MS = if_else(MS == "YES", 1, 0),
          MASLD = if_else(MASLD == "YES", 1, 0),
          CAC = if_else(CAC == "YES", 1, 0),
@@ -215,7 +225,7 @@ All missing values are in 5 (SCAPIS) and 9 (IGT) samples, but still the maximum 
 ## Join data and metadata
 
 ```{r}
-metadata_cols <- c("DAid", "Sex", "Age", "Smoke_status", "SBP_Mean", "DBP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT", "Obesity", "IGT", "MS", "MASLD", "carotidplaque", "CAC", "Sleep_apnea")
+metadata_cols <- c("DAid", "Sex", "Age", "Smoke_status", "MAP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT", "Obesity", "T2D", "IGT", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
 
 data_scapis_joined <- left_join(data_scapis, 
                                 metadata_preprocessed |> select(all_of(metadata_cols)), 
@@ -255,7 +265,7 @@ metadata_preprocessed |>
 Number of diseases in the 2 datasets.
 
 ```{r}
-disease_cols <- c("Obesity", "MS", "MASLD", "CAC", "carotidplaque", "Myocardial_infarction", "Atrial_fibrillation", "Coronary_artery_intervention", "Stroke", "COPD", "Asthma", "Tuberculosis", "Sleep_apnea", "Celiac_disease", "Crohn", "Rheumatic_disease", "IGT")
+disease_cols <- c("Obesity", "MS", "MASLD", "CAC", "Carotid_plaque", "Myocardial_infarction", "Atrial_fibrillation", "Coronary_artery_intervention", "Stroke", "COPD", "Asthma", "Tuberculosis", "Sleep_apnea", "Celiac_disease", "Crohn", "Rheumatic_disease", "T2D", "IGT")
 
 metadata_preprocessed |> 
   mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGT")) |> 
@@ -332,7 +342,7 @@ metadata_preprocessed |>
 Correlate other metadata with the diseases. From this plot however sleep apnea and asthma look irrelevant...
 
 ```{r}
-all_metadata_cols <- c("Obesity", "MS", "MASLD", "CAC", "carotidplaque", "Sleep_apnea", "IGT", "Weight", "BMI", "Waist", "SBP_Mean", "DBP_Mean", "Glucose", "HbA1c", "HOMA_IR", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT", "Sex", "Age")
+all_metadata_cols <- c("Obesity", "MS", "MASLD", "CAC", "Carotid_plaque", "Sleep_apnea", "IGT", "T2D", "Weight", "BMI", "Waist", "SBP_Mean", "DBP_Mean", "MAP_Mean", "Glucose", "HbA1c", "HOMA_IR", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT", "Sex", "Age")
 
 cor_matrix <- metadata_preprocessed |> 
   select(all_of(all_metadata_cols)) |> 
@@ -391,8 +401,8 @@ Check CAC, Obesity, Carotid plaque and Glucose groups clusters.
 #         color = "Obesity")
 # 
 # do_umap(all_data, 
-#         metadata_preprocessed |> mutate(carotidplaque = if_else(carotidplaque == 1, "YES", "NO")),
-#         color = "carotidplaque")
+#         metadata_preprocessed |> mutate(Carotid_plaque = if_else(Carotid_plaque == 1, "YES", "NO")),
+#         color = "Carotid_plaque")
 # 
 # do_umap(all_data, 
 #         metadata_preprocessed,
@@ -422,7 +432,8 @@ data_scapis_final <- data_scapis_joined |>
          !is.na(MS), 
          !is.na(MASLD), 
          !is.na(CAC),
-         !is.na(carotidplaque),
+         !is.na(Carotid_plaque),
+         !is.na(T2D),
          !is.na(IGT),
          !is.na(Sleep_apnea),
          !is.na(Sex), 
@@ -438,7 +449,7 @@ data_igt_final <- data_igt_joined |>
          !is.na(MS), 
          !is.na(MASLD), 
          !is.na(CAC),
-         !is.na(carotidplaque),
+         !is.na(Carotid_plaque),
          !is.na(IGT),
          !is.na(Sleep_apnea),
          !is.na(Sex), 
