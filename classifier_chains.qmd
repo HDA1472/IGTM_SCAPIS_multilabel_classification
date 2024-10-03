@@ -1,0 +1,23 @@
+---
+title: "classifier_chains"
+format: html
+editor: visual
+---
+
+# Set-up
+
+```{r setup, message = FALSE, warning = FALSE, results = 'hide'}
+library(HDAnalyzeR)
+library(tidyverse)
+library(tidymodels)
+library(vip)
+```
+
+# Import Data & Metadata
+
+```{r, message = FALSE, results = 'hide'}
+data_scapis <- import_df("data/processed_data/scapis_joined_preprocessed.rda")
+data_igt <- import_df("data/processed_data/igt_joined_preprocessed.rda")
+metadata <- import_df("data/processed_data/metadata_preprocessed.rda")
+```
+
