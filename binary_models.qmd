@@ -40,25 +40,25 @@ disease_palette <- c("Obesity" = "#E7662B",
 ```
 
 ```{r}
-make_groups <- function(join_data,
-                        variable,
-                        case = 1,
-                        seed = 123) {
-  
+balance_groups <- function(join_data,
+                           variable,
+                           case = 1,
+                           seed = 123) {
+
   Variable <- rlang::sym(variable)
   set.seed(seed)
 
   case_data <- join_data |> filter(!!Variable == case)
   control_data <- join_data |> filter(!!Variable != case)
-  
+
   case_sample_num <- nrow(case_data)
 
   group <- case_data
-  
+
   control_data <- control_data |>
     dplyr::filter(!!Variable != case) |>
     dplyr::sample_n(size = case_sample_num, replace = TRUE)
-  
+
   group <- rbind(group, control_data)
 
   return(group)
@@ -210,16 +210,12 @@ lasso <- function(join_data,
     mutate(!!Variable := as.factor(!!Variable))
   test_set <- testing(data_split) |> 
     mutate(!!Variable := as.factor(!!Variable))
-
-  train_set <- make_groups(train_set,
-                           variable,
-                           case = 1,
-                           seed)
-  test_set <- make_groups(test_set,
-                          variable,
-                          case = 1,
-                          seed)
-
+  
+  train_set <- balance_groups(train_set,
+                              variable,
+                              case = 1,
+                              seed)
+  
   train_folds <- vfold_cv(train_set, v = cv_sets, strata = !!Variable)
 
   print("Starting training...")
@@ -275,13 +271,13 @@ lasso <- function(join_data,
   res <- bind_cols(res, test_set |> select(!!Variable))
 
   accuracy <- res |> accuracy(!!Variable, .pred_class)
-  sensitivity <- res |> sensitivity(!!Variable, .pred_class)
-  specificity <- res |> specificity(!!Variable, .pred_class)
+  sensitivity <- res |> sensitivity(!!Variable, .pred_class, event_level = "second")
+  specificity <- res |> specificity(!!Variable, .pred_class, event_level = "second")
   auc <- preds |> collect_metrics()
   cm <- res |> conf_mat(!!Variable, .pred_class)
   roc <- preds |>
     collect_predictions(summarize = F) |>
-    roc_curve(truth = !!Variable, .pred_0) |>
+    roc_curve(truth = !!Variable, .pred_0, event_level = "second") |>
     ggplot(aes(x = 1 - specificity, y = sensitivity)) +
     geom_path(colour = palette[variable], linewidth = 2) +
     geom_abline(lty = 3) +
@@ -321,7 +317,6 @@ lasso <- function(join_data,
           axis.ticks.y = element_blank())
   
   return(list("final_wf" = final_wf,
-              "preds" = preds,
               "res" = res,
               "accuracy" = accuracy$.estimate,
               "sensitivity" = sensitivity$.estimate,
@@ -346,7 +341,7 @@ res <- lapply(disease_vec, function(disease) {
 
   model_res <- lasso(discovery_cohort, disease, cv_sets = 2, cor_threshold = 0.9, grid_size = 10)
   boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
-  return(c(model_res))
+  return(c(model_res, list("boxplot" = boxplot)))
 })
 
 names(res) <- disease_vec
@@ -383,14 +378,10 @@ elasticnet <- function(join_data,
   test_set <- testing(data_split) |> 
     mutate(!!Variable := as.factor(!!Variable))
 
-  train_set <- make_groups(train_set,
-                           variable,
-                           case = 1,
-                           seed)
-  test_set <- make_groups(test_set,
-                          variable,
-                          case = 1,
-                          seed)
+  train_set <- balance_groups(train_set,
+                              variable,
+                              case = 1,
+                              seed)
 
   train_folds <- vfold_cv(train_set, v = cv_sets, strata = !!Variable)
 
@@ -493,7 +484,6 @@ elasticnet <- function(join_data,
           axis.ticks.y = element_blank())
   
   return(list("final_wf" = final_wf,
-              "preds" = preds,
               "res" = res,
               "accuracy" = accuracy$.estimate,
               "sensitivity" = sensitivity$.estimate,
@@ -518,7 +508,7 @@ res <- lapply(disease_vec, function(disease) {
 
   model_res <- elasticnet(discovery_cohort, disease, cv_sets = 2, cor_threshold = 0.9, grid_size = 10)
   boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
-  return(c(model_res))
+  return(c(model_res, list("boxplot" = boxplot)))
 })
 
 names(res) <- disease_vec
@@ -555,14 +545,10 @@ rf <- function(join_data,
   test_set <- testing(data_split) |> 
     mutate(!!Variable := as.factor(!!Variable))
 
-  train_set <- make_groups(train_set,
-                           variable,
-                           case = 1,
-                           seed)
-  test_set <- make_groups(test_set,
-                          variable,
-                          case = 1,
-                          seed)
+  train_set <- balance_groups(train_set,
+                              variable,
+                              case = 1,
+                              seed)
 
   train_folds <- vfold_cv(train_set, v = cv_sets, strata = !!Variable)
 
@@ -667,7 +653,6 @@ rf <- function(join_data,
           axis.ticks.y = element_blank())
   
   return(list("final_wf" = final_wf,
-              "preds" = preds,
               "res" = res,
               "accuracy" = accuracy$.estimate,
               "sensitivity" = sensitivity$.estimate,
@@ -692,7 +677,7 @@ res <- lapply(disease_vec, function(disease) {
 
   model_res <- rf(discovery_cohort, disease, cv_sets = 2, cor_threshold = 0.9, grid_size = 5)
   boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
-  return(c(model_res))
+  return(c(model_res, list("boxplot" = boxplot)))
 })
 
 names(res) <- disease_vec
