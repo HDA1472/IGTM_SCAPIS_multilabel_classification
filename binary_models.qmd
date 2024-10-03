@@ -26,12 +26,13 @@ metadata <- import_df("data/processed_data/metadata_preprocessed.rda")
 ## General Utils
 
 ```{r}
-disease_vec <- c("Obesity", "IGT", "MS", "MASLD", "carotidplaque", "CAC", "Sleep_apnea")
+disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
 ```
 
 ```{r}
 disease_palette <- c("Obesity" = "#E7662B", 
                      "IGT" = "#B195AE", 
+                     "T2D" = "#603479",
                      "MS" = "#08585A", 
                      "MASLD" = "#FFD321", 
                      "carotidplaque" = "#E8A29A", 
@@ -240,13 +241,13 @@ lasso <- function(join_data,
   grid <- workflow |> 
     extract_parameter_set_dials() |>
     grid_space_filling(size = grid_size, type = "latin_hypercube")
-  
+
   roc_res <- metric_set(roc_auc)
   
   ctrl <- control_grid(save_pred = TRUE, parallel_over = "everything", verbose = TRUE)
   tune <- workflow |>
     tune_grid(train_folds, grid = grid, control = ctrl, metrics = roc_res)
-  
+  print(tune)
   print("Selecting best model...")
   
   # Select best model - Final fit
@@ -339,7 +340,7 @@ res <- lapply(disease_vec, function(disease) {
   discovery_cohort <- data_igt |>
     select(-all_of(cols_to_exclude))
 
-  model_res <- lasso(discovery_cohort, disease, cv_sets = 2, cor_threshold = 0.9, grid_size = 10)
+  model_res <- lasso(discovery_cohort, disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 30)
   boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
   return(c(model_res, list("boxplot" = boxplot)))
 })
@@ -506,7 +507,7 @@ res <- lapply(disease_vec, function(disease) {
   discovery_cohort <- data_igt |>
     select(-all_of(cols_to_exclude))
 
-  model_res <- elasticnet(discovery_cohort, disease, cv_sets = 2, cor_threshold = 0.9, grid_size = 10)
+  model_res <- elasticnet(discovery_cohort, disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 50)
   boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
   return(c(model_res, list("boxplot" = boxplot)))
 })
@@ -565,17 +566,25 @@ rf <- function(join_data,
     step_corr(all_numeric(), -all_outcomes(), -has_role("id"), threshold = cor_threshold)
   
   model <- rand_forest(trees = 1000,
-                       min_n = tune()) |>
+                       min_n = tune(),
+                       mtry = tune()) |>
     parsnip::set_mode("classification") |>
     parsnip::set_engine("ranger", importance = "permutation")
   
+  prepped_recipe <- prep(recipe, training = train_set)  # Prep the recipe
+  baked_data <- bake(prepped_recipe, new_data = train_set)
+  remaining_predictors <- colnames(baked_data)[!colnames(baked_data) %in% c(variable, "DAid")]
+  n_remaining_predictors <- length(remaining_predictors)
+
   workflow <- workflow() |> 
     add_recipe(recipe) |> 
     add_model(model)
-
-  grid <- workflow |> 
-    extract_parameter_set_dials() |>
-    grid_space_filling(size = grid_size, type = "latin_hypercube")
+  
+  grid <- grid_space_filling(min_n(), 
+                             mtry(range = c(floor(sqrt(n_remaining_predictors)),
+                                            (floor(n_remaining_predictors/3)))),
+                             size = grid_size,
+                             type = "latin_hypercube")
   
   roc_res <- metric_set(roc_auc)
   
@@ -675,7 +684,7 @@ res <- lapply(disease_vec, function(disease) {
   discovery_cohort <- data_igt |>
     select(-all_of(cols_to_exclude))
 
-  model_res <- rf(discovery_cohort, disease, cv_sets = 2, cor_threshold = 0.9, grid_size = 5)
+  model_res <- rf(discovery_cohort, disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 60)
   boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
   return(c(model_res, list("boxplot" = boxplot)))
 })
