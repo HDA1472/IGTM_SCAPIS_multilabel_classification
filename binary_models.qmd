@@ -40,6 +40,8 @@ disease_palette <- c("Obesity" = "#E7662B",
                      "Sleep_apnea" = "#A6CEE3")
 ```
 
+Function that balances the groups (case-control).
+
 ```{r}
 balance_groups <- function(join_data,
                            variable,
@@ -65,6 +67,8 @@ balance_groups <- function(join_data,
   return(group)
 }
 ```
+
+Function that generates subtitles for the variable importance plots.
 
 ```{r}
 generate_subtitle <- function(features,
@@ -116,6 +120,8 @@ generate_subtitle <- function(features,
   return(subtitle)
 }
 ```
+
+Function that creates boxplots of the top n features.
 
 ```{r}
 plot_protein_boxplot <- function(join_data,
@@ -185,6 +191,21 @@ plot_protein_boxplot <- function(join_data,
 
 ```
 
+Function to extract model results: Features & AUC.
+
+```{r}
+extract_model_res <- function(model, diseases) {
+  features_all <- lapply(diseases, function(disease) {
+    features <- model[[disease]]$features |> mutate(Disease = disease)
+  })
+  auc_all <- lapply(diseases, function(disease) {
+    auc <- model[[disease]]$auc |> as_tibble() |> rename(AUC = value) |> mutate(Disease = disease)
+  })
+  return(list("features" = bind_rows(features_all),
+              "auc" = bind_rows(auc_all)))
+}
+```
+
 ## LASSO
 
 ```{r}
@@ -247,7 +268,7 @@ lasso <- function(join_data,
   ctrl <- control_grid(save_pred = TRUE, parallel_over = "everything", verbose = TRUE)
   tune <- workflow |>
     tune_grid(train_folds, grid = grid, control = ctrl, metrics = roc_res)
-  print(tune)
+
   print("Selecting best model...")
   
   # Select best model - Final fit
@@ -350,6 +371,16 @@ names(res) <- disease_vec
 
 ```{r}
 saveRDS(res, file="results/models/lasso_binary.RData")
+```
+
+```{r}
+res_all <- extract_model_res(res, disease_vec)
+
+features <- res_all$features
+auc <- res_all$auc
+
+saveRDS(features, file="results/models_results/lasso_features.RData")
+saveRDS(auc, file="results/models_results/lasso_auc.RData")
 ```
 
 ## Elastic Net
@@ -517,6 +548,16 @@ names(res) <- disease_vec
 
 ```{r}
 saveRDS(res, file="results/models/elasticnet_binary.RData")
+```
+
+```{r}
+res_all <- extract_model_res(res, disease_vec)
+
+features <- res_all$features
+auc <- res_all$auc
+
+saveRDS(features, file="results/models_results/elasticnet_features.RData")
+saveRDS(auc, file="results/models_results/elasticnet_auc.RData")
 ```
 
 ## Random Forest
@@ -696,12 +737,49 @@ names(res) <- disease_vec
 saveRDS(res, file="results/models/rf_binary.RData")
 ```
 
+```{r}
+res_all <- extract_model_res(res, disease_vec)
+
+features <- res_all$features
+auc <- res_all$auc
+
+saveRDS(features, file="results/models_results/rf_features.RData")
+saveRDS(auc, file="results/models_results/rf_auc.RData")
+```
+
 # Analysis of model results
 
 ## Import model results
 
 ```{r}
-binary_lasso <- readRDS("results/models/lasso_binary.RData")
-binary_elasticnet <- readRDS("results/models/elasticnet_binary.RData")
-binary_rf <- readRDS("results/models/rf_binary.RData")
+lasso_features <- readRDS("results/models_results/lasso_features.RData")
+lasso_auc <- readRDS("results/models_results/lasso_auc.RData")
+```
+
+## Check feature overlap between diseases
+
+```{r}
+library(tidyheatmaps)
+data_heatmap <- lasso_features |> 
+  select(Variable, Disease, Scaled_Importance, Sign) |>
+  rename(Protein = Variable) |> 
+  filter(Scaled_Importance >= 50) |> 
+  mutate(Importance = if_else(Sign == "POS", round(Scaled_Importance, 2), -round(Scaled_Importance, 2))) |> 
+  select(-Sign, -Scaled_Importance) |> 
+  pivot_wider(names_from = Disease, values_from = Importance) |>
+  mutate(across(everything(), ~ replace_na(., 0))) |> 
+  pivot_longer(cols = -Protein, names_to = "Disease", values_to = "Importance") |> 
+  left_join(lasso_auc, by = "Disease") |>
+  tidyheatmap(
+    rows = Disease,
+    columns = Protein,
+    values = Importance,
+    colors = c("darkblue", "white", "red4"),
+    annotation_row = c(AUC),
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    legend_breaks = c(-100, -50, 0, 50, 100),
+    legend_labels = c("-100", "-50", "0", "50", "100"),
+    show_colnames = TRUE,
+    clustering_method = "ward.D2")
 ```
