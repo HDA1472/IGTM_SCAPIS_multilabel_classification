@@ -11,9 +11,10 @@ library(HDAnalyzeR)
 library(tidyverse)
 library(tidymodels)
 library(vip)
+library(tidyheatmaps)
 ```
 
-# Import Data & Metadata
+# Import data & metadata
 
 ```{r, message = FALSE, results = 'hide'}
 data_scapis <- import_df("data/processed_data/scapis_joined_preprocessed.rda")
@@ -21,9 +22,9 @@ data_igt <- import_df("data/processed_data/igt_joined_preprocessed.rda")
 metadata <- import_df("data/processed_data/metadata_preprocessed.rda")
 ```
 
-# Binary Models - Clinical + Proteomics+
+# Binary models - clinical + proteomics
 
-## General Utils
+## General utils
 
 ```{r}
 disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
@@ -35,7 +36,7 @@ disease_palette <- c("Obesity" = "#E7662B",
                      "T2D" = "#603479",
                      "MS" = "#08585A", 
                      "MASLD" = "#FFD321", 
-                     "carotidplaque" = "#E8A29A", 
+                     "Carotid_plaque" = "#E8A29A", 
                      "CAC" = "#9E0142", 
                      "Sleep_apnea" = "#A6CEE3")
 ```
@@ -758,9 +759,10 @@ lasso_auc <- readRDS("results/models_results/lasso_auc.RData")
 
 ## Check feature overlap between diseases
 
+Filter >50% Importance.
+
 ```{r}
-library(tidyheatmaps)
-data_heatmap <- lasso_features |> 
+lasso_features |> 
   select(Variable, Disease, Scaled_Importance, Sign) |>
   rename(Protein = Variable) |> 
   filter(Scaled_Importance >= 50) |> 
@@ -783,3 +785,26 @@ data_heatmap <- lasso_features |>
     show_colnames = TRUE,
     clustering_method = "ward.D2")
 ```
+
+```{r}
+disease_list <- lasso_features |> 
+  select(Disease, Variable) |>
+  group_by(Disease) |> 
+  summarise(Variable = list(Variable)) |> 
+  deframe()
+
+feature_names <- names(disease_list)
+ordered_colors <- disease_palette[feature_names]
+frequencies <- sapply(disease_list, length)
+ordered_feature_names <- names(sort(frequencies, decreasing = TRUE))
+ordered_colors <- ordered_colors[ordered_feature_names]
+
+upset <- UpSetR::fromList(disease_list)
+
+UpSetR::upset(upset,
+              sets = ordered_feature_names,
+              order.by = "freq",
+              nsets = length(ordered_feature_names),
+              sets.bar.color = ordered_colors)
+```
+

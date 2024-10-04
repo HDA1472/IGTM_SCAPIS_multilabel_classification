@@ -1,0 +1,19 @@
+---
+title: "clustering_analysis"
+format: html
+editor: visual
+---
+
+# Set-up
+
+```{r setup, message = FALSE, warning = FALSE, results = 'hide'}
+library(HDAnalyzeR)
+library(tidyverse)
+```
+
+# Import model results
+
+```{r, message = FALSE, results = 'hide'}
+lasso_features <- readRDS("results/models_results/lasso_features.RData")
+lasso_auc <- readRDS("results/models_results/lasso_auc.RData")
+```
