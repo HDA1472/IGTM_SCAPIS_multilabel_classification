@@ -9,11 +9,132 @@ editor: visual
 ```{r setup, message = FALSE, warning = FALSE, results = 'hide'}
 library(HDAnalyzeR)
 library(tidyverse)
+library(stringr)
 ```
 
-# Import model results
+# Import data & metadata
+
+```{r, message = FALSE, results = 'hide'}
+data_scapis <- import_df("data/processed_data/scapis_joined_preprocessed.rda")
+data_igt <- import_df("data/processed_data/igt_joined_preprocessed.rda")
+metadata <- import_df("data/processed_data/metadata_preprocessed.rda")
+```
+
+# Import LASSO model features
 
 ```{r, message = FALSE, results = 'hide'}
 lasso_features <- readRDS("results/models_results/lasso_features.RData")
-lasso_auc <- readRDS("results/models_results/lasso_auc.RData")
 ```
+
+# Clustering analysis
+
+## Identify proteomics features
+
+```{r}
+metadata_cols <- c("DAid", "Sex", "Age", "Smoke_status", "MAP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT")
+```
+
+I should do that both with over 30% and over 50% importance.
+
+```{r}
+proteomics_features_list <- lasso_features |> 
+  filter(Scaled_Importance > 50) |> 
+  pull(Variable) |> 
+  unique()
+```
+
+```{r}
+proteomics_dataset <- data_igt |> 
+  select(DAid, any_of(proteomics_features_list))
+```
+
+## Identify disease features
+
+```{r}
+disease_cols <- c("Obesity", "T2D", "IGT", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
+```
+
+```{r}
+disease_dataset <- data_igt |> 
+  select(DAid, any_of(disease_cols))
+```
+
+## Hierarchical clustering
+
+Run clustering based on both predictors and diseases.
+
+> Categorical predictors are not included (Sex, Smoke_status).
+
+```{r}
+num_clusters <- 20  # Specify the number of clusters for the disease data
+
+# Disease clustering
+disease_dist <- dist(disease_dataset |> select(-DAid), method = "euclidean")
+disease_hclust <- hclust(disease_dist, method = "ward.D2")
+disease_clusters <- cutree(disease_hclust, k = num_clusters)
+
+disease_cluster_results <- disease_dataset |> 
+  select(DAid) |> 
+  mutate(disease_cluster = disease_clusters)
+
+# Proteome clustering
+proteome_dist <- dist(proteomics_dataset |> select(-DAid), method = "euclidean")
+proteome_hclust <- hclust(proteome_dist, method = "ward.D2")
+proteome_clusters <- cutree(proteome_hclust, k = num_clusters)
+
+proteome_cluster_results <- proteomics_dataset |> 
+  select(DAid) |> 
+  mutate(proteome_cluster = proteome_clusters)
+```
+
+Compare clusters.
+
+```{r}
+overlap <- tibble(Disease_cluster = integer(), Proteome_cluster = integer(), Overlap_percentage = double())
+
+for (i in 1:num_clusters) {
+  for (j in 1:num_clusters) {
+    disease_cluster <- disease_cluster_results |> filter(disease_cluster == i) |> pull(DAid)
+    proteome_cluster <- proteome_cluster_results |> filter(proteome_cluster == j) |> pull(DAid)
+    
+    disease_patients <- length(disease_cluster)
+    common_patients <- length(intersect(disease_cluster, proteome_cluster))
+    overlap_percentage <- round(common_patients / disease_patients * 100, 0)
+    
+    overlap <- overlap |> 
+      add_row(Disease_cluster = i, Proteome_cluster = j, Overlap_percentage = overlap_percentage)
+  }
+}
+
+overlap |> 
+  tidyheatmaps::tidyheatmap(
+    row = Disease_cluster, 
+    column = Proteome_cluster, 
+    value = Overlap_percentage,
+    cluster_rows = TRUE,
+    cluster_cols = TRUE
+  )
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
