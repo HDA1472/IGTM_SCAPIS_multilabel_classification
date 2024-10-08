@@ -1,0 +1,126 @@
+---
+title: "class_substudies"
+format: html
+editor: visual
+---
+
+# Set-up
+
+```{r setup, message = FALSE, warning = FALSE, results = 'hide'}
+library(HDAnalyzeR)
+library(tidyverse)
+library(tidymodels)
+library(vip)
+library(multiROC)
+```
+
+# Import data & metadata
+
+```{r, message = FALSE, results = 'hide'}
+data_scapis <- import_df("data/processed_data/scapis_joined_preprocessed.rda")
+data_igt <- import_df("data/processed_data/igt_joined_preprocessed.rda")
+metadata <- import_df("data/processed_data/metadata_preprocessed.rda")
+```
+
+# Import ML functions
+
+```{r}
+source("ml_functions.R")
+```
+
+# Vectors & Palettes
+
+```{r}
+disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
+```
+
+```{r}
+glucosegroup_palette <- c("NGT_lowFINDRISC" = "#ffffff",
+                          "NGT_highFINDRISC" = "#d6cace",
+                          "IFG" = "#ac98a2",
+                          "IGT" = "#836879", 
+                          "CGI" = "#5a3c54",
+                          "T2D_new" = "#321433")
+```
+
+# LASSO - Glucose Groups
+
+Loop over diseases.
+
+```{r}
+glucose_discovery <- data_igt |> 
+  left_join(metadata |> select(DAid, glucose.group), by = "DAid") |>
+  select(-all_of(c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea"))) |> 
+  relocate(glucose.group, .after = DAid)
+```
+
+```{r}
+glucose_discovery |> 
+  group_by(glucose.group) |> 
+  summarise(n = n())
+```
+
+```{r}
+res <- lasso_multi(glucose_discovery, "glucose.group", cv_sets = 10, cor_threshold = 0.9, grid_size = 30)
+```
+
+```{r}
+saveRDS(res, file="results/models/lasso_glucosegroups_multiclass.RData")
+```
+
+## Visualize model results
+
+Confusion matrix visualization.
+
+```{r}
+cm_table <- as.data.frame(as.table(res$confusion_matrix$table))
+colnames(cm_table) <- c("Predicted", "Actual", "Freq")
+cm_table |> 
+  mutate(Predicted = factor(Predicted, levels = c("NGT_lowFINDRISC", "NGT_highFINDRISC", "IFG", "IGT", "CGI", "T2D_new")),
+         Actual = factor(Actual, levels = c("NGT_lowFINDRISC", "NGT_highFINDRISC", "IFG", "IGT", "CGI", "T2D_new"))) |>
+  ggplot(aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), color = "black") +  
+  scale_fill_gradient2(low = "#ffffff", high = "#ee4445") +  
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Boxplots of top-features (>50% Importance).
+
+```{r}
+top_features <- res$features |> 
+  filter(Scaled_Importance > 50) |> 
+  pull(Variable)
+
+glucose_discovery |> 
+  select(glucose.group, all_of(top_features)) |>
+  pivot_longer(cols = -glucose.group, names_to = "Protein", values_to = "NPX") |>
+  mutate(glucose.group = factor(glucose.group, levels = c("NGT_lowFINDRISC", "NGT_highFINDRISC", "IFG", "IGT", "CGI", "T2D_new")),
+         Protein = factor(Protein, levels = top_features)) |>
+  ggplot(aes(x = glucose.group, y = NPX, fill = glucose.group)) +
+  geom_boxplot() +
+  scale_fill_manual(values = glucosegroup_palette) +
+  facet_wrap(~Protein, scales = "free_y") +
+  labs(x = "Glucose Group", y = "NPX") +
+  theme_hpa() + 
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+Barplot of AUCs.
+
+```{r}
+res$auc |> 
+  filter(Glucose_group %in% c("NGT_lowFINDRISC", "NGT_highFINDRISC", "IFG", "IGT", "CGI", "T2D_new")) |>
+  mutate(Glucose_group = factor(Glucose_group, levels = c("NGT_lowFINDRISC", "NGT_highFINDRISC", "IFG", "IGT", "CGI", "T2D_new"))) |> 
+  ggplot(aes(x = Glucose_group, y = AUC, fill = Glucose_group)) +
+  geom_bar(stat = "identity", color = "black") +
+  geom_text(aes(label = round(AUC, 2)), position = position_dodge(width = 0.9), vjust = -0.5) +
+  scale_fill_manual(values = glucosegroup_palette) +
+  labs(x = "Disease", y = "AUC") +
+  theme_hpa() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```

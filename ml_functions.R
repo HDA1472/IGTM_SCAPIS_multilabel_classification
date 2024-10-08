@@ -592,3 +592,148 @@ rf <- function(join_data,
               "features" = features,
               "var_imp_plot" = var_imp_plot))
 }
+
+
+## LASSO Multiclass
+lasso_multi <- function(join_data,
+                        variable,
+                        seed = 123,
+                        cv_sets = 5,
+                        cor_threshold = 0.9,
+                        grid_size = 10,
+                        subtitle = c("features", "top-features")) {
+  Variable <- rlang::sym(variable)
+  
+  # Prepare sets
+  set.seed(seed)
+  data_split <- initial_split(join_data, prop = 0.8, strata = !!Variable)
+  
+  train_set <- training(data_split) |> 
+    mutate(!!Variable := as.factor(!!Variable))
+  test_set <- testing(data_split) |> 
+    mutate(!!Variable := as.factor(!!Variable))
+  
+  train_folds <- vfold_cv(train_set, v = cv_sets, strata = !!Variable)
+  
+  print("Starting training...")
+  
+  # Train model - hyperparameter optimization
+  formula <- stats::as.formula(paste(variable, "~ ."))
+  
+  recipe <- recipe(formula, data = train_set) |> 
+    update_role(DAid, new_role = "id") |> 
+    step_dummy(all_nominal(), -all_outcomes(), -has_role("id")) |> 
+    step_zv(all_predictors(), -has_role("id")) |> 
+    step_normalize(all_numeric(), -all_outcomes(), -has_role("id")) |> 
+    step_corr(all_numeric(), -all_outcomes(), -has_role("id"), threshold = cor_threshold)
+  
+  model <- multinom_reg(penalty = tune(), mixture = 1) |>
+    set_engine("glmnet")
+  
+  workflow <- workflow() |> 
+    add_recipe(recipe) |> 
+    add_model(model)
+  
+  grid <- workflow |> 
+    extract_parameter_set_dials() |>
+    grid_space_filling(size = grid_size, type = "latin_hypercube")
+  
+  roc_res <- metric_set(roc_auc)
+  
+  ctrl <- control_grid(save_pred = TRUE, parallel_over = "everything", verbose = TRUE)
+  tune <- workflow |>
+    tune_grid(train_folds, grid = grid, control = ctrl, metrics = roc_res)
+  
+  print("Selecting best model...")
+  
+  # Select best model - Final fit
+  best <- tune |>
+    select_best(metric = "roc_auc") |>
+    select(-.config)
+  
+  final_wf <- finalize_workflow(workflow, best)
+  
+  final <- final_wf |>
+    fit(train_set)
+  
+  print("Evaluating model...")
+  
+  # Evaluate model
+  splits <- make_splits(train_set, test_set)
+  
+  preds <- last_fit(final_wf, splits, metrics = metric_set(roc_auc))
+  
+  class_predictions <- predict(final, new_data = test_set, type = "class")
+  prob_predictions <- predict(final, new_data = test_set, type = "prob")
+  
+  res <- bind_cols(test_set |> select(!!Variable), class_predictions, prob_predictions)
+  
+  cm <- res |> conf_mat(!!Variable, .pred_class)
+  
+  roc_data <- roc_curve(res, truth = !!Variable, .pred_CGI, .pred_IFG, .pred_IGT, 
+                        .pred_NGT_highFINDRISC, .pred_NGT_lowFINDRISC, .pred_T2D_new)
+  roc <- autoplot(roc_data)
+  
+  features <- final |>
+    extract_fit_parsnip() |>
+    vi() |>
+    mutate(Importance = abs(Importance),
+           Variable = forcats::fct_reorder(Variable, Importance)) |>
+    arrange(desc(Importance)) |>
+    mutate(Scaled_Importance = scales::rescale(Importance, to = c(0, 100))) |>
+    filter(Scaled_Importance > 0)
+  
+  subtitle_text <- generate_subtitle(features = features, subtitle = subtitle)
+  
+  var_imp_plot <- features |>
+    ggplot(aes(x = Scaled_Importance, y = Variable)) +
+    geom_col(aes(fill = ifelse(Scaled_Importance > 50, variable, NA))) +
+    labs(y = NULL) +
+    scale_x_continuous(breaks = c(0, 100), expand = c(0, 0)) +  # Keep x-axis tick labels at 0 and 100
+    ggtitle(label = paste0(variable, " - Multiclassification"),
+            subtitle = subtitle_text) +
+    xlab('Importance') +
+    ylab('Features') +
+    theme_classic() +
+    theme(legend.position = "none",
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank())
+  
+  # ROC
+  final_predictions <- prob_predictions |> 
+    mutate(DAid = test_set$DAid) |> 
+    relocate(DAid)
+  
+  dat <- test_set |> 
+    select(DAid, !!Variable) |> 
+    mutate(value = 1) |> 
+    spread(!!Variable, value, fill= 0) 
+  
+  true_dat <- dat |> 
+    set_names(paste(names(dat), "_true", sep = "")) |> 
+    rename(DAid = `DAid_true`)
+  
+  dat_prob <- final_predictions |> 
+    rename_all(~stringr::str_replace_all(.,".pred_",""))
+  
+  prob_data <- dat_prob |> 
+    set_names(paste(names(dat_prob), "_pred_glmnet", sep = ""))|> 
+    rename(DAid = DAid_pred_glmnet)
+  
+  final_df <- 
+    true_dat |> 
+    left_join(prob_data, by = "DAid") |>  
+    select(-DAid) |> 
+    as.data.frame()
+  
+  auc <- multi_roc(final_df, force_diag=T)
+  auc <- tibble(Glucose_group = names(auc$AUC$glmnet), AUC = unlist(auc$AUC$glmnet))
+  
+  return(list("final_wf" = final_wf,
+              "res" = res,
+              "auc" = auc,
+              "confusion_matrix" = cm,
+              "roc_curve" = roc,
+              "features" = features,
+              "var_imp_plot" = var_imp_plot))
+}
