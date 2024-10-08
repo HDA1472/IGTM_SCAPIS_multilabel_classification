@@ -1,0 +1,248 @@
+---
+title: "umap_analysis"
+format: html
+editor: visual
+---
+
+# Set-up
+
+```{r setup, message = FALSE, warning = FALSE, results = 'hide'}
+library(HDAnalyzeR)
+library(tidyverse)
+```
+
+# Import data & metadata
+
+```{r, message = FALSE, results = 'hide'}
+data_scapis <- import_df("data/processed_data/scapis_joined_preprocessed.rda")
+data_igt <- import_df("data/processed_data/igt_joined_preprocessed.rda")
+metadata <- import_df("data/processed_data/metadata_preprocessed.rda")
+```
+
+```{r}
+disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
+```
+
+```{r}
+disease_palette <- c("Obesity" = "#E7662B", 
+                     "IGT" = "#836879", 
+                     "T2D" = "#321433",
+                     "MS" = "#08585A", 
+                     "MASLD" = "#FFD321", 
+                     "Carotid_plaque" = "#E8A29A", 
+                     "CAC" = "#9E0142", 
+                     "Sleep_apnea" = "#A6CEE3")
+```
+
+# Import LASSO model features
+
+```{r, message = FALSE, results = 'hide'}
+lasso_features <- readRDS("results/models_results/lasso_features.RData")
+glucosegroup_model_results <- readRDS("results/models/lasso_glucosegroups_multiclass.RData")
+```
+
+Select feature panel. I select features that have more than 50% Importance. In case that the disease has less than 3 features with more than 50% Importance, I select the top 3 features. On the other hand, if a disease has more than 30 features with more than 50% Importance, I select the top 20 features.
+
+```{r}
+top_3_protein <- lasso_features |> 
+  group_by(Disease) |> 
+  top_n(3, wt = Scaled_Importance)
+  
+proteomics_features_50 <- lasso_features |> 
+  filter(Scaled_Importance > 50) |> 
+  group_by(Disease) |>
+  slice_max(order_by = Scaled_Importance, n = 20) |> 
+  ungroup()
+
+proteomics_features_list <- proteomics_features_50 |> 
+  bind_rows(top_3_protein) |>
+  pull(Variable) |> 
+  unique()
+```
+
+# UMAP - IGT
+
+There is no separation with most the parameters. There might be a small separation with BMI/Obesity.
+
+Check for sex, age and BMI effects.
+
+```{r}
+do_umap(all_data,
+        metadata_preprocessed,
+        color = "Sex",
+        palette = "sex_hpa")
+
+do_umap(all_data,
+        metadata_preprocessed,
+        color = "Age")
+
+do_umap(all_data,
+        metadata_preprocessed,
+        color = "BMI")
+```
+
+## All features vs protein panel
+
+### T2D
+
+```{r}
+do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
+        metadata |> mutate(T2D = factor(T2D)),
+        color = "T2D",
+        palette = c("1" = "#321433", "0" = "lightgrey"))
+
+do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_status),
+        metadata |> mutate(T2D = factor(T2D)),
+        color = "T2D",
+        palette = c("1" = "#321433", "0" = "lightgrey"))
+```
+
+### IGT
+
+```{r}
+do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
+        metadata |> mutate(IGT = factor(IGT)),
+        color = "IGT",
+        palette = c("1" = "#836879", "0" = "lightgrey"))
+
+do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_status),
+        metadata |> mutate(IGT = factor(IGT)),
+        color = "IGT",
+        palette = c("1" = "#836879", "0" = "lightgrey"))
+```
+
+### Glucose Groups
+
+```{r}
+glucosegroup_palette <- c("NGT_lowFINDRISC" = "#ffdddd",
+                          "NGT_highFINDRISC" = "#d6cace",
+                          "IFG" = "#ac98a2",
+                          "IGT" = "#836879", 
+                          "CGI" = "#5a3c54",
+                          "T2D_new" = "#321433")
+
+glucosegroup_features <- glucosegroup_model_results$features |> 
+  top_n(20, wt = Scaled_Importance) |> 
+  pull(Variable)
+
+do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
+        metadata |> mutate(glucose.group = factor(glucose.group)),
+        color = "glucose.group",
+        palette = glucosegroup_palette)
+
+do_umap(data_igt |> select(DAid, any_of(glucosegroup_features), -Sex, -Smoke_status),
+        metadata |> mutate(glucose.group = factor(glucose.group)),
+        color = "glucose.group",
+        palette = glucosegroup_palette)
+```
+
+### Obesity
+
+```{r}
+do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
+        metadata |> mutate(Obesity = factor(Obesity)),
+        color = "Obesity",
+        palette = c("1" = "#E7662B", "0" = "lightgrey"))
+
+do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_status),
+        metadata |> mutate(Obesity = factor(Obesity)),
+        color = "Obesity",
+        palette = c("1" = "#E7662B", "0" = "lightgrey"))
+```
+
+### MS
+
+```{r}
+do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
+        metadata |> mutate(MS = factor(MS)),
+        color = "MS",
+        palette = c("1" = "#08585A", "0" = "lightgrey"))
+
+do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_status),
+        metadata |> mutate(MS = factor(MS)),
+        color = "MS",
+        palette = c("1" = "#08585A", "0" = "lightgrey"))
+```
+
+### MASLD
+
+```{r}
+do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
+        metadata |> mutate(MASLD = factor(MASLD)),
+        color = "MASLD",
+        palette = c("1" = "#FFD321", "0" = "lightgrey"))
+
+do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_status),
+        metadata |> mutate(MASLD = factor(MASLD)),
+        color = "MASLD",
+        palette = c("1" = "#FFD321", "0" = "lightgrey"))
+```
+
+### CAC
+
+```{r}
+do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
+        metadata |> mutate(CAC = factor(CAC)),
+        color = "CAC",
+        palette = c("1" = "#9E0142", "0" = "lightgrey"))
+
+do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_status),
+        metadata |> mutate(CAC = factor(CAC)),
+        color = "CAC",
+        palette = c("1" = "#9E0142", "0" = "lightgrey"))
+```
+
+### Carotid Plaque
+
+```{r}
+do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
+        metadata |> mutate(Carotid_plaque = factor(Carotid_plaque)),
+        color = "Carotid_plaque",
+        palette = c("1" = "#E8A29A", "0" = "lightgrey"))
+
+do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_status),
+        metadata |> mutate(Carotid_plaque = factor(Carotid_plaque)),
+        color = "Carotid_plaque",
+        palette = c("1" = "#E8A29A", "0" = "lightgrey"))
+```
+
+### Sleep Apnea
+
+```{r}http://127.0.0.1:30959/graphics/plot_zoom_png?width=931&height=577
+do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
+        metadata |> mutate(Sleep_apnea = factor(Sleep_apnea)),
+        color = "Sleep_apnea",
+        palette = c("1" = "#A6CEE3", "0" = "lightgrey"))
+
+do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_status),
+        metadata |> mutate(Sleep_apnea = factor(Sleep_apnea)),
+        color = "Sleep_apnea",
+        palette = c("1" = "#A6CEE3", "0" = "lightgrey"))
+```
+
+## Number of diseases per patient
+
+```{r}
+disease_count <- data_igt |> 
+  select(DAid, all_of(disease_vec)) |> 
+  pivot_longer(cols = -DAid, names_to = "Disease", values_to = "Disease_status") |> 
+  filter(Disease_status == 1) |> 
+  group_by(DAid) |> 
+  summarise(n = n())
+
+do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
+        metadata |> 
+          filter(DAid %in% data_igt$DAid) |> 
+          left_join(disease_count) |> 
+          mutate(n = factor(n),
+                 n = ifelse(is.na(n), "0", n)),
+        color = "n")
+
+do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_status),
+        metadata |> 
+          filter(DAid %in% data_igt$DAid) |> 
+          left_join(disease_count) |> 
+          mutate(n = factor(n),
+                 n = ifelse(is.na(n), "0", n)),
+        color = "n")
+```
