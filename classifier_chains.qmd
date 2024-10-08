@@ -36,8 +36,8 @@ disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC"
 
 ```{r}
 disease_palette <- c("Obesity" = "#E7662B", 
-                     "IGT" = "#B195AE", 
-                     "T2D" = "#603479",
+                     "IGT" = "#836879", 
+                     "T2D" = "#321433",
                      "MS" = "#08585A", 
                      "MASLD" = "#FFD321", 
                      "Carotid_plaque" = "#E8A29A", 
@@ -98,7 +98,7 @@ lasso_chain_auc <- readRDS("results/models_results/lasso_chain_auc.RData")
 
 ## Check feature overlap between diseases
 
-Filter >50% Importance.
+Filter \>50% Importance.
 
 ```{r}
 lasso_chain_features |> 
@@ -125,7 +125,7 @@ lasso_chain_features |>
     clustering_method = "ward.D2")
 ```
 
-No filter at all. 
+No filter at all.
 
 ```{r}
 disease_list <- lasso_features |> 
@@ -148,4 +148,3 @@ UpSetR::upset(upset,
               nsets = length(ordered_feature_names),
               sets.bar.color = ordered_colors)
 ```
-
