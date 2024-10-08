@@ -87,7 +87,7 @@ cm_table |>
         axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-Boxplots of top-features (>50% Importance).
+Boxplots of top-features (>50% Importance). HbA1c is a typical T2D clinical predictor.
 
 ```{r}
 top_features <- res$features |> 
