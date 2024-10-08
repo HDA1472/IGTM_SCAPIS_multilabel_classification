@@ -360,9 +360,7 @@ corrplot(cor_matrix,
 
 ## UMAP
 
-There are no extreme outliers at all. There is a small cluster of points bellow. There is no separation with most the parameters. There might be a small separation with BMI/Obesity.
-
-Check if there are Cohort effects.
+There are no extreme outliers at all or cohort effects. There is a small cluster of points bellow. 
 
 ```{r}
 all_data <- rbind(data_scapis, data_igt)
@@ -370,43 +368,6 @@ do_umap(all_data,
         metadata_preprocessed |>
           mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGT")),
         color = "Cohort")
-```
-
-Check for sex, age and BMI effects.
-
-```{r}
-# do_umap(all_data, 
-#         metadata_preprocessed,
-#         color = "Sex",
-#         palette = "sex_hpa")
-# 
-# do_umap(all_data, 
-#         metadata_preprocessed,
-#         color = "Age")
-# 
-# do_umap(all_data, 
-#         metadata_preprocessed,
-#         color = "BMI")
-```
-
-Check CAC, Obesity, Carotid plaque and Glucose groups clusters.
-
-```{r}
-# do_umap(all_data, 
-#         metadata_preprocessed |> mutate(CAC = if_else(CAC == 1, "YES", "NO")),
-#         color = "CAC")
-# 
-# do_umap(all_data, 
-#         metadata_preprocessed |> mutate(Obesity = if_else(Obesity == 1, "YES", "NO")),
-#         color = "Obesity")
-# 
-# do_umap(all_data, 
-#         metadata_preprocessed |> mutate(Carotid_plaque = if_else(Carotid_plaque == 1, "YES", "NO")),
-#         color = "Carotid_plaque")
-# 
-# do_umap(all_data, 
-#         metadata_preprocessed,
-#         color = "glucose.group")
 ```
 
 # Processed the joined datasets
