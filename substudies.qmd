@@ -12,6 +12,7 @@ library(tidyverse)
 library(tidymodels)
 library(vip)
 library(multiROC)
+library(RColorBrewer)
 ```
 
 # Import data & metadata
@@ -28,11 +29,9 @@ metadata <- import_df("data/processed_data/metadata_preprocessed.rda")
 source("ml_functions.R")
 ```
 
-# Vectors & Palettes
+# Glucose Groups
 
-```{r}
-disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
-```
+## LASSO multi-class
 
 ```{r}
 glucosegroup_palette <- c("NGT_lowFINDRISC" = "#ffdddd",
@@ -42,10 +41,6 @@ glucosegroup_palette <- c("NGT_lowFINDRISC" = "#ffdddd",
                           "CGI" = "#5a3c54",
                           "T2D_new" = "#321433")
 ```
-
-# LASSO - Glucose Groups
-
-Loop over diseases.
 
 ```{r}
 glucose_discovery <- data_igt |> 
@@ -126,7 +121,9 @@ res$auc |>
 ```
 
 
-# LASSO - Number of diseases per patient
+# Number of diseases per patient
+
+## UMAP analysis
 
 ```{r}
 disease_count <- data_igt |> 
@@ -151,4 +148,153 @@ do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_
           mutate(n = factor(n),
                  n = ifelse(is.na(n), "0", n)),
         color = "n")
+```
+
+## LASSO multi-class
+
+```{r}
+ndisease_discovery <- data_igt |> 
+  left_join(disease_count, by = "DAid") |>
+  select(-all_of(c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea"))) |> 
+  relocate(n, .after = DAid) |> 
+  mutate(n = factor(n),
+         n = ifelse(is.na(n), "0", n)) |> 
+  rename(ndisease = n)
+```
+
+```{r}
+ndisease_discovery |> 
+  group_by(ndisease) |> 
+  summarise(patients = n())
+```
+
+```{r}
+res <- lasso_multi(ndisease_discovery, "ndisease", cv_sets = 10, cor_threshold = 0.9, grid_size = 30)
+```
+
+```{r}
+saveRDS(res, file="results/models/lasso_ndiseaseperpatient_multiclass.RData")
+```
+
+## Visualize model results
+
+How many patients per disease number?
+
+```{r}
+ndisease_discovery |> 
+  ggplot(aes(x = ndisease, fill = ndisease)) +
+  geom_bar(color = "black") +
+  labs(x = "Number of diseases", y = "Number of patients") +
+  scale_fill_brewer(palette = "PuBuGn") +
+  theme_hpa()
+```
+
+Stacked bar chart of the number of diseases per patient. For patients with more than 1 disease, the patients are divided by the number of diseases, so each patient contributes to the total number of diseases but still count as one patient.
+
+```{r}
+class_palette <- c("Healthy" = "lightgrey",
+                   "Obesity" = "#E7662B", 
+                   "IGT" = "#836879", 
+                   "T2D" = "#321433",
+                   "MS" = "#08585A", 
+                   "MASLD" = "#FFD321", 
+                   "Carotid_plaque" = "#E8A29A", 
+                   "CAC" = "#9E0142", 
+                   "Sleep_apnea" = "#A6CEE3")
+
+
+
+disease_columns <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
+
+# 1. Separate patients with 0 diseases
+zero_disease_data <- ndisease_discovery |> 
+  select(DAid, ndisease) |>
+  left_join(metadata |> select(DAid, all_of(disease_columns)), by = "DAid") |>
+  filter(ndisease == 0) |> 
+  mutate(weight = 1, Disease = "Healthy") |> 
+  select(DAid, ndisease, Disease, weight)
+
+# 2. Process patients with 1 or more diseases
+disease_data <- ndisease_discovery |> 
+  select(DAid, ndisease) |>
+  left_join(metadata |> select(DAid, all_of(disease_columns)), by = "DAid") |>
+  filter(ndisease > 0) |> 
+  pivot_longer(cols = all_of(disease_columns), names_to = "Disease", values_to = "Has_Disease") |> 
+  filter(Has_Disease == 1) |> 
+  group_by(DAid) |> 
+  mutate(n_diseases = n()) |>   # Count how many diseases each patient has
+  mutate(weight = 1 / n_diseases) |>   # Assign weight based on number of diseases
+  ungroup()
+
+# 3. Summarize the disease data
+disease_summary <- disease_data |> 
+  group_by(DAid, ndisease, Disease) |> 
+  summarize(weight = sum(weight), .groups = 'drop')
+
+# 4. Combine patients with 0 diseases back into the summarized data
+combined_data <- bind_rows(disease_summary, zero_disease_data)
+
+# 5. Create the stacked bar plot
+ggplot(combined_data, aes(x = factor(ndisease), y = weight, fill = Disease)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(x = "Number of Diseases", y = "Proportion of Patients", fill = "Disease") +
+  theme_minimal() +
+  scale_fill_manual(values = class_palette) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1)) +
+  theme_hpa()
+```
+
+Confusion matrix visualization.
+
+```{r}
+cm_table <- as.data.frame(as.table(res$confusion_matrix$table))
+colnames(cm_table) <- c("Predicted", "Actual", "Freq")
+cm_table |> 
+  mutate(Predicted = factor(Predicted, levels = c("0", "1", "2", "3", "4", "5", "6", "7")),
+         Actual = factor(Actual, levels = c("0", "1", "2", "3", "4", "5", "6", "7"))) |>
+  ggplot(aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), color = "black") +  
+  scale_fill_gradient2(low = "#ffffff", high = "#ee4445") +  
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 0, hjust = 1))
+```
+
+Boxplots of top-features (\>50% Importance). HbA1c is a typical T2D clinical predictor.
+
+```{r}
+top_features <- res$features |> 
+  filter(Scaled_Importance > 50) |> 
+  pull(Variable)
+
+ndisease_discovery |> 
+  select(ndisease, all_of(top_features)) |>
+  pivot_longer(cols = -ndisease, names_to = "Protein", values_to = "NPX") |>
+  mutate(ndisease = factor(ndisease, levels = c("0", "1", "2", "3", "4", "5", "6", "7")),
+         Protein = factor(Protein, levels = top_features)) |>
+  ggplot(aes(x = ndisease, y = NPX, fill = ndisease)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "PuBuGn") +
+  facet_wrap(~Protein, scales = "free_y") +
+  labs(x = "Number of diseases", y = "NPX") +
+  theme_hpa() + 
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 0, hjust = 1))
+```
+
+Barplot of AUCs.
+
+```{r}
+res$auc |> 
+  filter(ndisease %in% c("0", "1", "2", "3", "4", "5", "6", "7")) |>
+  mutate(ndisease = factor(ndisease, levels = c("0", "1", "2", "3", "4", "5", "6", "7"))) |> 
+  ggplot(aes(x = ndisease, y = AUC, fill = ndisease)) +
+  geom_bar(stat = "identity", color = "black") +
+  geom_text(aes(label = round(AUC, 2)), position = position_dodge(width = 0.9), vjust = -0.5) +
+  scale_fill_brewer(palette = "PuBuGn") +
+  labs(x = "Number of diseases", y = "AUC") +
+  theme_hpa() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 0, hjust = 1))
 ```
