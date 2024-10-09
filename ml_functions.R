@@ -669,9 +669,10 @@ lasso_multi <- function(join_data,
   res <- bind_cols(test_set |> select(!!Variable), class_predictions, prob_predictions)
   
   cm <- res |> conf_mat(!!Variable, .pred_class)
-  
-  roc_data <- roc_curve(res, truth = !!Variable, .pred_CGI, .pred_IFG, .pred_IGT, 
-                        .pred_NGT_highFINDRISC, .pred_NGT_lowFINDRISC, .pred_T2D_new)
+
+  pred_cols <- grep("^\\.pred_", names(res |> select(-.pred_class)), value = TRUE)
+
+  roc_data <- roc_curve(res, truth = !!Variable, !!!rlang::syms(pred_cols))
   roc <- autoplot(roc_data)
   
   features <- final |>
@@ -727,7 +728,7 @@ lasso_multi <- function(join_data,
     as.data.frame()
   
   auc <- multi_roc(final_df, force_diag=T)
-  auc <- tibble(Glucose_group = names(auc$AUC$glmnet), AUC = unlist(auc$AUC$glmnet))
+  auc <- tibble(!!Variable := names(auc$AUC$glmnet), AUC = unlist(auc$AUC$glmnet))
   
   return(list("final_wf" = final_wf,
               "res" = res,
