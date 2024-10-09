@@ -50,7 +50,7 @@ disease_palette <- c("Obesity" = "#E7662B",
 Loop over diseases.
 
 ```{r}
-ordered_disease_vec <- c("Obesity", "MS", "IGT", "T2D", "MASLD", "CAC", "Carotid_plaque", "Sleep_apnea")
+ordered_disease_vec <- c("Obesity", "MS", "MASLD", "Sleep_apnea", "IGT", "T2D",  "Carotid_plaque", "CAC")
 
 excluded_diseases <- character()
 
@@ -78,7 +78,7 @@ saveRDS(res, file="results/models/lasso_chain.RData")
 ```
 
 ```{r}
-res_all <- extract_model_res(res, disease_vec)
+res_all <- extract_model_res(res, ordered_disease_vec)
 
 features <- res_all$features
 auc <- res_all$auc
@@ -87,16 +87,200 @@ saveRDS(features, file="results/models_results/lasso_chain_features.RData")
 saveRDS(auc, file="results/models_results/lasso_chain_auc.RData")
 ```
 
+# Classifier-chains - only proteomics
+
+```{r}
+metadata_cols <- c("Sex", "Age", "Smoke_status", "MAP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT")
+```
+
+## LASSO
+
+Loop over diseases.
+
+```{r}
+ordered_disease_vec <- c("Obesity", "MS", "MASLD", "Sleep_apnea", "IGT", "T2D",  "Carotid_plaque", "CAC")
+
+excluded_diseases <- character()
+
+res <- lapply(ordered_disease_vec, function(disease) {
+  print(paste(disease, "model:"))
+  # Update the excluded diseases list
+  excluded_diseases <<- unique(c(excluded_diseases, disease))
+  
+  # Determine which diseases to exclude in the current iteration
+  cols_to_exclude <- ordered_disease_vec |> setdiff(excluded_diseases)
+  
+  discovery_cohort <- data_igt |>
+    select(-all_of(cols_to_exclude)) |> 
+    select(-all_of(metadata_cols))
+  
+  model_res <- lasso(discovery_cohort, disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 30)
+  boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
+  return(c(model_res, list("boxplot" = boxplot)))
+})
+
+names(res) <- ordered_disease_vec
+```
+```{r}
+saveRDS(res, file="results/models/lasso_onlyproteins_chain.RData")
+```
+
+```{r}
+res_all <- extract_model_res(res, ordered_disease_vec)
+
+features <- res_all$features
+auc <- res_all$auc
+
+saveRDS(features, file="results/models_results/lasso_chain_onlyproteins_features.RData")
+saveRDS(auc, file="results/models_results/lasso_chain_onlyproteins_auc.RData")
+```
+
 # Analysis of model results
 
 ## Import model results
 
 ```{r}
+lasso_features <- readRDS("results/models_results/lasso_features.RData")
+lasso_auc <- readRDS("results/models_results/lasso_auc.RData")
+lasso_onlyproteins_features <- readRDS("results/models_results/lasso_onlyproteins_features.RData")
+lasso_onlyproteins_auc <- readRDS("results/models_results/lasso_onlyproteins_auc.RData")
 lasso_chain_features <- readRDS("results/models_results/lasso_chain_features.RData")
 lasso_chain_auc <- readRDS("results/models_results/lasso_chain_auc.RData")
+lasso_chain_onlyproteins_features <- readRDS("results/models_results/lasso_chain_onlyproteins_features.RData")
+lasso_chain_onlyproteins_auc <- readRDS("results/models_results/lasso_chain_onlyproteins_auc.RData")
+```
+
+## Binary vs. chain - clinical + proteomics
+
+Number of features
+
+```{r}
+lasso_features |> 
+  select(Disease, Variable) |> 
+  group_by(Disease) |> 
+  summarise(nFeatures = n_distinct(Variable)) |> 
+  mutate(Classifier = "Binary") |>
+  bind_rows(lasso_chain_features |> 
+              select(Disease, Variable) |> 
+              group_by(Disease) |> 
+              summarise(nFeatures = n_distinct(Variable)) |> 
+              mutate(Classifier = "Chain")) |> 
+  ggplot(aes(x = Disease, y = nFeatures, fill = Classifier)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = round(nFeatures, 2)), position = position_dodge(width = 1), vjust = -0.5) +
+  scale_fill_manual(values = c("Binary" = "lightgrey", "Chain" = "forestgreen")) +
+  labs(y = "Number of features") +
+  theme_hpa() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Number of top features
+
+```{r}
+lasso_features |> 
+  filter(Scaled_Importance >= 50) |>
+  select(Disease, Variable) |> 
+  group_by(Disease) |> 
+  summarise(nFeatures = n_distinct(Variable)) |> 
+  mutate(Classifier = "Binary") |>
+  bind_rows(lasso_chain_features |> 
+              filter(Scaled_Importance >= 50) |>
+              select(Disease, Variable) |> 
+              group_by(Disease) |> 
+              summarise(nFeatures = n_distinct(Variable)) |> 
+              mutate(Classifier = "Chain")) |> 
+  ggplot(aes(x = Disease, y = nFeatures, fill = Classifier)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = round(nFeatures, 2)), position = position_dodge(width = 1), vjust = -0.5) +
+  scale_fill_manual(values = c("Binary" = "lightgrey", "Chain" = "forestgreen")) +
+  labs(y = "Number of features") +
+  theme_hpa() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+AUC
+
+```{r}
+lasso_auc |> 
+  select(Disease, AUC) |> 
+  mutate(Classifier = "Binary") |> 
+  bind_rows(lasso_chain_auc |> select(Disease, AUC) |> mutate(Classifier = "Chain")) |> 
+  ggplot(aes(x = Disease, y = AUC, fill = Classifier)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = round(AUC, 2)), position = position_dodge(width = 1), vjust = -0.5) +
+  scale_fill_manual(values = c("Binary" = "lightgrey", "Chain" = "forestgreen")) +
+  labs(y = "AUC") +
+  theme_hpa() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Binary vs. chain - only proteomics
+
+Number of features
+
+```{r}
+lasso_onlyproteins_features |> 
+  select(Disease, Variable) |> 
+  group_by(Disease) |> 
+  summarise(nFeatures = n_distinct(Variable)) |> 
+  mutate(Classifier = "Binary") |>
+  bind_rows(lasso_chain_onlyproteins_features |> 
+              select(Disease, Variable) |> 
+              group_by(Disease) |> 
+              summarise(nFeatures = n_distinct(Variable)) |> 
+              mutate(Classifier = "Chain")) |> 
+  ggplot(aes(x = Disease, y = nFeatures, fill = Classifier)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = round(nFeatures, 2)), position = position_dodge(width = 1), vjust = -0.5) +
+  scale_fill_manual(values = c("Binary" = "lightgrey", "Chain" = "forestgreen")) +
+  labs(y = "Number of features") +
+  theme_hpa() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Number of top features
+
+```{r}
+lasso_onlyproteins_features |> 
+  filter(Scaled_Importance >= 50) |>
+  select(Disease, Variable) |> 
+  group_by(Disease) |> 
+  summarise(nFeatures = n_distinct(Variable)) |> 
+  mutate(Classifier = "Binary") |>
+  bind_rows(lasso_chain_onlyproteins_features |> 
+              filter(Scaled_Importance >= 50) |>
+              select(Disease, Variable) |> 
+              group_by(Disease) |> 
+              summarise(nFeatures = n_distinct(Variable)) |> 
+              mutate(Classifier = "Chain")) |> 
+  ggplot(aes(x = Disease, y = nFeatures, fill = Classifier)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = round(nFeatures, 2)), position = position_dodge(width = 1), vjust = -0.5) +
+  scale_fill_manual(values = c("Binary" = "lightgrey", "Chain" = "forestgreen")) +
+  labs(y = "Number of features") +
+  theme_hpa() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+AUC
+
+```{r}
+lasso_onlyproteins_auc |> 
+  select(Disease, AUC) |> 
+  mutate(Classifier = "Binary") |> 
+  bind_rows(lasso_chain_onlyproteins_auc |> select(Disease, AUC) |> mutate(Classifier = "Chain")) |> 
+  ggplot(aes(x = Disease, y = AUC, fill = Classifier)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = round(AUC, 2)), position = position_dodge(width = 1), vjust = -0.5) +
+  scale_fill_manual(values = c("Binary" = "lightgrey", "Chain" = "forestgreen")) +
+  labs(y = "AUC") +
+  theme_hpa() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 ## Check feature overlap between diseases
+
+### Clinical + proteomics
 
 Filter \>50% Importance.
 
@@ -147,4 +331,33 @@ UpSetR::upset(upset,
               order.by = "freq",
               nsets = length(ordered_feature_names),
               sets.bar.color = ordered_colors)
+```
+
+### Only proteomics
+
+Filter \>50% Importance.
+
+```{r}
+lasso_chain_onlyproteins_features |> 
+  select(Variable, Disease, Scaled_Importance, Sign) |>
+  rename(Protein = Variable) |> 
+  filter(Scaled_Importance >= 50) |> 
+  mutate(Importance = if_else(Sign == "POS", round(Scaled_Importance, 2), -round(Scaled_Importance, 2))) |> 
+  select(-Sign, -Scaled_Importance) |> 
+  pivot_wider(names_from = Disease, values_from = Importance) |>
+  mutate(across(everything(), ~ replace_na(., 0))) |> 
+  pivot_longer(cols = -Protein, names_to = "Disease", values_to = "Importance") |> 
+  left_join(lasso_auc, by = "Disease") |>
+  tidyheatmap(
+    rows = Disease,
+    columns = Protein,
+    values = Importance,
+    colors = c("darkblue", "white", "red4"),
+    annotation_row = c(AUC),
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    legend_breaks = c(-100, -50, 0, 50, 100),
+    legend_labels = c("-100", "-50", "0", "50", "100"),
+    show_colnames = TRUE,
+    clustering_method = "ward.D2")
 ```
