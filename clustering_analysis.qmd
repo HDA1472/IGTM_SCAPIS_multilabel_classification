@@ -103,8 +103,8 @@ Compare clusters.
 ```{r}
 cluster_results <- disease_cluster_results |> 
   inner_join(proteome_cluster_results, by = "DAid") |> 
-  mutate(proteome_cluster = paste0("P", proteome_cluster),
-         disease_cluster = paste0("F", disease_cluster),
+  mutate(proteome_cluster = paste0("F", proteome_cluster),
+         disease_cluster = paste0("D", disease_cluster),
          DummyCount = 1)
 
 cluster_results |> 
