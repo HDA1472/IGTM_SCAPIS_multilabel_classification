@@ -1,0 +1,77 @@
+---
+title: "differential_expression"
+format: html
+editor: source
+---
+
+```{r setup, message = FALSE, warning = FALSE, results = 'hide'}
+library(HDAnalyzeR)
+library(tidyverse)
+library(tidyheatmaps)
+```
+
+# Import data & metadata
+
+```{r, message = FALSE, results = 'hide'}
+data_scapis <- import_df("data/processed_data/scapis_joined_preprocessed.rda")
+data_igt <- import_df("data/processed_data/igt_joined_preprocessed.rda")
+metadata <- import_df("data/processed_data/metadata_preprocessed.rda")
+```
+
+# Differential Expression - limma
+
+```{r}
+disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
+```
+
+```{r}
+disease_palette <- c("Obesity" = "#E7662B", 
+                     "IGT" = "#836879", 
+                     "T2D" = "#321433",
+                     "MS" = "#08585A", 
+                     "MASLD" = "#FFD321", 
+                     "Carotid_plaque" = "#E8A29A", 
+                     "CAC" = "#9E0142", 
+                     "Sleep_apnea" = "#A6CEE3")
+```
+
+```{r}
+metadata_cols <- c("Sex", "Age", "Smoke_status", "MAP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT")
+```
+
+```{r}
+res <- lapply(disease_vec, function(disease) {
+  print(paste(disease, "Case:"))
+  
+  discovery_cohort <- data_igt |>
+    select(-all_of(disease_vec)) |> 
+    select(-any_of(metadata_cols))
+  
+  if (disease == "Obesity") {
+    correct <- c("Age", "Sex")
+    correct_type <- c("numeric", "factor")
+  } else {
+    correct <- c("Age", "Sex", "BMI")
+    correct_type <- c("numeric", "factor", "numeric")
+  }
+  de_res <- do_limma(discovery_cohort, 
+                     metadata |> rename(Disease = disease), 
+                     "Disease", 
+                     case = 1, 
+                     control = 0,
+                     correct = correct,
+                     correct_type = correct_type,
+                     logfc_lim = 0)
+})
+
+names(res) <- disease_vec
+```
+
+```{r}
+de_all <- lapply(disease_vec, function(disease) {
+    de_res <- res[[disease]]$de_results |> mutate(Disease = disease)
+  })
+de_all <- bind_rows(de_all)
+```
+
+# Analysis of DE results
