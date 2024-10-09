@@ -360,7 +360,7 @@ corrplot(cor_matrix,
 
 ## UMAP
 
-There are no extreme outliers at all or cohort effects. There is a small cluster of points bellow. 
+There are no extreme outliers at all or cohort effects. There is a small cluster of points bellow.
 
 ```{r}
 all_data <- rbind(data_scapis, data_igt)
