@@ -246,7 +246,7 @@ lasso <- function(join_data,
   cm <- res |> conf_mat(!!Variable, .pred_class)
   roc <- preds |>
     collect_predictions(summarize = F) |>
-    roc_curve(truth = !!Variable, .pred_0, event_level = "second") |>
+    roc_curve(truth = !!Variable, .pred_0) |>
     ggplot(aes(x = 1 - specificity, y = sensitivity)) +
     geom_path(colour = palette[variable], linewidth = 2) +
     geom_abline(lty = 3) +
