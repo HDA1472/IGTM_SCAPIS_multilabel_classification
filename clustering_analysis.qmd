@@ -9,7 +9,7 @@ editor: visual
 ```{r setup, message = FALSE, warning = FALSE, results = 'hide'}
 library(HDAnalyzeR)
 library(tidyverse)
-library(stringr)
+library(ggalluvial)
 ```
 
 # Import data & metadata
@@ -34,11 +34,21 @@ lasso_features <- readRDS("results/models_results/lasso_features.RData")
 metadata_cols <- c("DAid", "Sex", "Age", "Smoke_status", "MAP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT")
 ```
 
-I should do that both with over 30% and over 50% importance.
+I select features that have more than 50% Importance. In case that the disease has less than 3 features with more than 50% Importance, I select the top 3 features. On the other hand, if a disease has more than 30 features with more than 50% Importance, I select the top 20 features.
 
 ```{r}
-proteomics_features_list <- lasso_features |> 
+top_3_protein <- lasso_features |> 
+  group_by(Disease) |> 
+  top_n(3, wt = Scaled_Importance)
+  
+proteomics_features_50 <- lasso_features |> 
   filter(Scaled_Importance > 50) |> 
+  group_by(Disease) |>
+  slice_max(order_by = Scaled_Importance, n = 20) |> 
+  ungroup()
+
+proteomics_features_list <- proteomics_features_50 |> 
+  bind_rows(top_3_protein) |>
   pull(Variable) |> 
   unique()
 ```
@@ -63,10 +73,12 @@ disease_dataset <- data_igt |>
 
 Run clustering based on both predictors and diseases.
 
+They do not cluster nicely no matter the number of clusters (4-12).
+
 > Categorical predictors are not included (Sex, Smoke_status).
 
 ```{r}
-num_clusters <- 20  # Specify the number of clusters for the disease data
+num_clusters <- 6  # Specify the number of clusters for the disease data
 
 # Disease clustering
 disease_dist <- dist(disease_dataset |> select(-DAid), method = "euclidean")
@@ -90,51 +102,77 @@ proteome_cluster_results <- proteomics_dataset |>
 Compare clusters.
 
 ```{r}
-overlap <- tibble(Disease_cluster = integer(), Proteome_cluster = integer(), Overlap_percentage = double())
+cluster_results <- disease_cluster_results |> 
+  inner_join(proteome_cluster_results, by = "DAid") |> 
+  mutate(proteome_cluster = paste0("P", proteome_cluster),
+         disease_cluster = paste0("D", disease_cluster),
+         DummyCount = 1)
 
-for (i in 1:num_clusters) {
-  for (j in 1:num_clusters) {
-    disease_cluster <- disease_cluster_results |> filter(disease_cluster == i) |> pull(DAid)
-    proteome_cluster <- proteome_cluster_results |> filter(proteome_cluster == j) |> pull(DAid)
-    
-    disease_patients <- length(disease_cluster)
-    common_patients <- length(intersect(disease_cluster, proteome_cluster))
-    overlap_percentage <- round(common_patients / disease_patients * 100, 0)
-    
-    overlap <- overlap |> 
-      add_row(Disease_cluster = i, Proteome_cluster = j, Overlap_percentage = overlap_percentage)
-  }
-}
-
-overlap |> 
-  tidyheatmaps::tidyheatmap(
-    row = Disease_cluster, 
-    column = Proteome_cluster, 
-    value = Overlap_percentage,
-    cluster_rows = TRUE,
-    cluster_cols = TRUE
-  )
+cluster_results |> 
+  ggplot(aes(y = DummyCount, axis1 = disease_cluster, axis2 = proteome_cluster)) +
+  geom_alluvium(width = 1/12) +
+  geom_stratum(width = 1/12, fill = "black", color = "grey") +
+  geom_label(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("Disease", "Proteome"), expand = c(.05, .05)) +
+  labs(y = "") +
+  theme_bw() + 
+  theme(panel.border = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank())
 ```
 
+## KMeans clustering
 
+Run clustering based on both predictors and diseases.
 
+They do not cluster nicely no matter the number of clusters (4-12).
 
+> Categorical predictors are not included (Sex, Smoke_status).
 
+```{r}
+num_clusters <- 6  # Specify the number of clusters for the disease data
 
+# Disease clustering
+disease_kmeans <- disease_dataset |> 
+  select(-DAid) |> 
+  kmeans(centers = num_clusters)
 
+disease_cluster_results <- data.frame(DAid = disease_dataset$DAid, 
+                                      disease_cluster = disease_kmeans$cluster)
 
+# Proteome clustering
+proteome_kmeans <- proteomics_dataset |> 
+  select(-DAid) |> 
+  kmeans(centers = num_clusters)
 
+proteome_cluster_results <- data.frame(DAid = proteomics_dataset$DAid, 
+                                       proteome_cluster = proteome_kmeans$cluster)
+```
 
+Compare clusters.
 
+```{r}
+cluster_results <- disease_cluster_results |> 
+  inner_join(proteome_cluster_results, by = "DAid") |> 
+  mutate(proteome_cluster = paste0("P", proteome_cluster),
+         disease_cluster = paste0("D", disease_cluster),
+         DummyCount = 1)
 
-
-
-
-
-
-
-
-
-
-
-
+cluster_results |> 
+  ggplot(aes(y = DummyCount, axis1 = disease_cluster, axis2 = proteome_cluster)) +
+  geom_alluvium(width = 1/12) +
+  geom_stratum(width = 1/12, fill = "black", color = "grey") +
+  geom_label(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("Disease", "Proteome"), expand = c(.05, .05)) +
+  labs(y = "") +
+  theme_bw() + 
+  theme(panel.border = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank())
+```
