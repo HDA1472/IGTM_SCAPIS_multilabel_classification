@@ -29,11 +29,9 @@ lasso_onlyproteins_features <- readRDS("results/models_results/lasso_onlyprotein
 
 # Clustering analysis
 
-## Identify proteomics features
+## Features vs diseases
 
-```{r}
-metadata_cols <- c("DAid", "Sex", "Age", "Smoke_status", "MAP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT")
-```
+### Identify proteomics features
 
 I select features that have more than 50% Importance. In case that the disease has less than 3 features with more than 50% Importance, I select the top 3 features. On the other hand, if a disease has more than 30 features with more than 50% Importance, I select the top 20 features.
 
@@ -59,7 +57,7 @@ proteomics_dataset <- data_igt |>
   select(DAid, any_of(proteomics_features_list))
 ```
 
-## Identify disease features
+### Identify disease features
 
 ```{r}
 disease_cols <- c("Obesity", "T2D", "IGT", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
@@ -70,7 +68,7 @@ disease_dataset <- data_igt |>
   select(DAid, any_of(disease_cols))
 ```
 
-## Hierarchical clustering
+### Hierarchical clustering
 
 Run clustering based on both predictors and diseases.
 
@@ -90,7 +88,7 @@ disease_cluster_results <- disease_dataset |>
   select(DAid) |> 
   mutate(disease_cluster = disease_clusters)
 
-# Proteome clustering
+# Combined clustering
 proteome_dist <- dist(proteomics_dataset |> select(-DAid), method = "euclidean")
 proteome_hclust <- hclust(proteome_dist, method = "ward.D2")
 proteome_clusters <- cutree(proteome_hclust, k = num_clusters)
@@ -106,7 +104,7 @@ Compare clusters.
 cluster_results <- disease_cluster_results |> 
   inner_join(proteome_cluster_results, by = "DAid") |> 
   mutate(proteome_cluster = paste0("P", proteome_cluster),
-         disease_cluster = paste0("D", disease_cluster),
+         disease_cluster = paste0("F", disease_cluster),
          DummyCount = 1)
 
 cluster_results |> 
@@ -114,7 +112,7 @@ cluster_results |>
   geom_alluvium(width = 1/12) +
   geom_stratum(width = 1/12, fill = "black", color = "grey") +
   geom_label(stat = "stratum", aes(label = after_stat(stratum))) +
-  scale_x_discrete(limits = c("Disease", "Proteome"), expand = c(.05, .05)) +
+  scale_x_discrete(limits = c("Disease", "Features"), expand = c(.05, .05)) +
   labs(y = "") +
   theme_bw() + 
   theme(panel.border = element_blank(), 
@@ -125,7 +123,7 @@ cluster_results |>
         axis.ticks.y = element_blank())
 ```
 
-## KMeans clustering
+### KMeans clustering
 
 Run clustering based on both predictors and diseases.
 
@@ -144,7 +142,7 @@ disease_kmeans <- disease_dataset |>
 disease_cluster_results <- data.frame(DAid = disease_dataset$DAid, 
                                       disease_cluster = disease_kmeans$cluster)
 
-# Proteome clustering
+# Combined clustering
 proteome_kmeans <- proteomics_dataset |> 
   select(-DAid) |> 
   kmeans(centers = num_clusters)
@@ -158,7 +156,7 @@ Compare clusters.
 ```{r}
 cluster_results <- disease_cluster_results |> 
   inner_join(proteome_cluster_results, by = "DAid") |> 
-  mutate(proteome_cluster = paste0("P", proteome_cluster),
+  mutate(proteome_cluster = paste0("F", proteome_cluster),
          disease_cluster = paste0("D", disease_cluster),
          DummyCount = 1)
 
@@ -167,7 +165,286 @@ cluster_results |>
   geom_alluvium(width = 1/12) +
   geom_stratum(width = 1/12, fill = "black", color = "grey") +
   geom_label(stat = "stratum", aes(label = after_stat(stratum))) +
-  scale_x_discrete(limits = c("Disease", "Proteome"), expand = c(.05, .05)) +
+  scale_x_discrete(limits = c("Disease", "Features"), expand = c(.05, .05)) +
+  labs(y = "") +
+  theme_bw() + 
+  theme(panel.border = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank())
+```
+
+## Proteins vs clinical metadata
+
+### Identify proteomics features
+
+I select features that have more than 50% Importance. In case that the disease has less than 3 features with more than 50% Importance, I select the top 3 features. On the other hand, if a disease has more than 30 features with more than 50% Importance, I select the top 20 features.
+
+```{r}
+top_3_protein <- lasso_onlyproteins_features |> 
+  group_by(Disease) |> 
+  top_n(3, wt = Scaled_Importance)
+  
+proteomics_features_50 <- lasso_onlyproteins_features |> 
+  filter(Scaled_Importance > 50) |> 
+  group_by(Disease) |>
+  slice_max(order_by = Scaled_Importance, n = 20) |> 
+  ungroup()
+
+proteomics_features_list <- proteomics_features_50 |> 
+  bind_rows(top_3_protein) |>
+  pull(Variable) |> 
+  unique()
+```
+
+```{r}
+proteomics_dataset <- data_igt |> 
+  select(DAid, any_of(proteomics_features_list))
+```
+
+### Identify clinical features
+
+```{r}
+clinical_cols <- c("Age", "MAP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT")
+```
+
+```{r}
+clinical_dataset <- data_igt |> 
+  select(DAid, any_of(clinical_cols))
+```
+
+### Hierarchical clustering
+
+Run clustering based on both predictors and diseases.
+
+They do not cluster nicely no matter the number of clusters (4-12).
+
+> Categorical predictors are not included (Sex, Smoke_status).
+
+```{r}
+num_clusters <- 6  # Specify the number of clusters for the disease data
+
+# Clinical clustering
+clinical_dist <- dist(clinical_dataset |> select(-DAid), method = "euclidean")
+clinical_hclust <- hclust(clinical_dist, method = "ward.D2")
+clinical_clusters <- cutree(clinical_hclust, k = num_clusters)
+
+clinical_cluster_results <- clinical_dataset |> 
+  select(DAid) |> 
+  mutate(clinical_cluster = clinical_clusters)
+
+# Proteome clustering
+proteome_dist <- dist(proteomics_dataset |> select(-DAid), method = "euclidean")
+proteome_hclust <- hclust(proteome_dist, method = "ward.D2")
+proteome_clusters <- cutree(proteome_hclust, k = num_clusters)
+
+proteome_cluster_results <- proteomics_dataset |> 
+  select(DAid) |> 
+  mutate(proteome_cluster = proteome_clusters)
+```
+
+Compare clusters.
+
+```{r}
+cluster_results <- clinical_cluster_results |> 
+  inner_join(proteome_cluster_results, by = "DAid") |> 
+  mutate(proteome_cluster = paste0("P", proteome_cluster),
+         clinical_cluster = paste0("C", clinical_cluster),
+         DummyCount = 1)
+
+cluster_results |> 
+  ggplot(aes(y = DummyCount, axis1 = clinical_cluster, axis2 = proteome_cluster)) +
+  geom_alluvium(width = 1/12) +
+  geom_stratum(width = 1/12, fill = "black", color = "grey") +
+  geom_label(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("Clinical", "Proteome"), expand = c(.05, .05)) +
+  labs(y = "") +
+  theme_bw() + 
+  theme(panel.border = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank())
+```
+
+### KMeans clustering
+
+Run clustering based on both predictors and diseases.
+
+They do not cluster nicely no matter the number of clusters (4-12).
+
+> Categorical predictors are not included (Sex, Smoke_status).
+
+```{r}
+num_clusters <- 6  # Specify the number of clusters for the disease data
+
+# Clinical clustering
+clinical_kmeans <- clinical_dataset |> 
+  select(-DAid) |> 
+  kmeans(centers = num_clusters)
+
+clinical_cluster_results <- data.frame(DAid = clinical_dataset$DAid, 
+                                       clinical_cluster = clinical_kmeans$cluster)
+
+# Proteome clustering
+proteome_kmeans <- proteomics_dataset |> 
+  select(-DAid) |> 
+  kmeans(centers = num_clusters)
+
+proteome_cluster_results <- data.frame(DAid = proteomics_dataset$DAid, 
+                                       proteome_cluster = proteome_kmeans$cluster)
+```
+
+Compare clusters.
+
+```{r}
+cluster_results <- clinical_cluster_results |> 
+  inner_join(proteome_cluster_results, by = "DAid") |> 
+  mutate(proteome_cluster = paste0("P", proteome_cluster),
+         clinical_cluster = paste0("C", clinical_cluster),
+         DummyCount = 1)
+
+cluster_results |> 
+  ggplot(aes(y = DummyCount, axis1 = clinical_cluster, axis2 = proteome_cluster)) +
+  geom_alluvium(width = 1/12) +
+  geom_stratum(width = 1/12, fill = "black", color = "grey") +
+  geom_label(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("Clinical", "Proteome"), expand = c(.05, .05)) +
+  labs(y = "") +
+  theme_bw() + 
+  theme(panel.border = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank())
+```
+
+## Clinical metadata vs diseases
+
+### Identify disease features
+
+```{r}
+disease_cols <- c("Obesity", "T2D", "IGT", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
+```
+
+```{r}
+disease_dataset <- data_igt |> 
+  select(DAid, any_of(disease_cols))
+```
+
+### Identify clinical features
+
+```{r}
+clinical_cols <- c("Age", "MAP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT")
+```
+
+```{r}
+clinical_dataset <- data_igt |> 
+  select(DAid, any_of(clinical_cols))
+```
+
+### Hierarchical clustering
+
+Run clustering based on both predictors and diseases.
+
+They do not cluster nicely no matter the number of clusters (4-12).
+
+> Categorical predictors are not included (Sex, Smoke_status).
+
+```{r}
+num_clusters <- 6  # Specify the number of clusters for the disease data
+
+# Clinical clustering
+clinical_dist <- dist(clinical_dataset |> select(-DAid), method = "euclidean")
+clinical_hclust <- hclust(clinical_dist, method = "ward.D2")
+clinical_clusters <- cutree(clinical_hclust, k = num_clusters)
+
+clinical_cluster_results <- clinical_dataset |> 
+  select(DAid) |> 
+  mutate(clinical_cluster = clinical_clusters)
+
+# Disease clustering
+disease_dist <- dist(disease_dataset |> select(-DAid), method = "euclidean")
+disease_hclust <- hclust(disease_dist, method = "ward.D2")
+disease_clusters <- cutree(disease_hclust, k = num_clusters)
+
+disease_cluster_results <- disease_dataset |> 
+  select(DAid) |> 
+  mutate(disease_cluster = disease_clusters)
+```
+
+Compare clusters.
+
+```{r}
+cluster_results <- clinical_cluster_results |> 
+  inner_join(disease_cluster_results, by = "DAid") |> 
+  mutate(disease_cluster = paste0("D", disease_cluster),
+         clinical_cluster = paste0("C", clinical_cluster),
+         DummyCount = 1)
+
+cluster_results |> 
+  ggplot(aes(y = DummyCount, axis1 = clinical_cluster, axis2 = disease_cluster)) +
+  geom_alluvium(width = 1/12) +
+  geom_stratum(width = 1/12, fill = "black", color = "grey") +
+  geom_label(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("Clinical", "Disease"), expand = c(.05, .05)) +
+  labs(y = "") +
+  theme_bw() + 
+  theme(panel.border = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank())
+```
+
+### KMeans clustering
+
+Run clustering based on both predictors and diseases.
+
+They do not cluster nicely no matter the number of clusters (4-12).
+
+> Categorical predictors are not included (Sex, Smoke_status).
+
+```{r}
+num_clusters <- 6  # Specify the number of clusters for the disease data
+
+# Clinical clustering
+clinical_kmeans <- clinical_dataset |> 
+  select(-DAid) |> 
+  kmeans(centers = num_clusters)
+
+clinical_cluster_results <- data.frame(DAid = clinical_dataset$DAid, 
+                                       clinical_cluster = clinical_kmeans$cluster)
+
+# Disease clustering
+disease_kmeans <- disease_dataset |> 
+  select(-DAid) |> 
+  kmeans(centers = num_clusters)
+
+disease_cluster_results <- data.frame(DAid = disease_dataset$DAid, 
+                                      disease_cluster = disease_kmeans$cluster)
+```
+
+Compare clusters.
+
+```{r}
+cluster_results <- clinical_cluster_results |> 
+  inner_join(disease_cluster_results, by = "DAid") |> 
+  mutate(disease_cluster = paste0("D", disease_cluster),
+         clinical_cluster = paste0("C", clinical_cluster),
+         DummyCount = 1)
+
+cluster_results |> 
+  ggplot(aes(y = DummyCount, axis1 = clinical_cluster, axis2 = disease_cluster)) +
+  geom_alluvium(width = 1/12) +
+  geom_stratum(width = 1/12, fill = "black", color = "grey") +
+  geom_label(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("Clinical", "Disease"), expand = c(.05, .05)) +
   labs(y = "") +
   theme_bw() + 
   theme(panel.border = element_blank(), 
