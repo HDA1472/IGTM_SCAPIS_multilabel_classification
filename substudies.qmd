@@ -1,7 +1,7 @@
 ---
 title: "class_substudies"
 format: html
-editor: visual
+editor: source
 ---
 
 # Set-up
@@ -119,7 +119,6 @@ res$auc |>
   theme(legend.position = "none",
         axis.text.x = element_text(angle = 45, hjust = 1))
 ```
-
 
 # Number of diseases per patient
 
