@@ -124,3 +124,31 @@ res$auc |>
   theme(legend.position = "none",
         axis.text.x = element_text(angle = 45, hjust = 1))
 ```
+
+
+# LASSO - Number of diseases per patient
+
+```{r}
+disease_count <- data_igt |> 
+  select(DAid, all_of(disease_vec)) |> 
+  pivot_longer(cols = -DAid, names_to = "Disease", values_to = "Disease_status") |> 
+  filter(Disease_status == 1) |> 
+  group_by(DAid) |> 
+  summarise(n = n())
+
+do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
+        metadata |> 
+          filter(DAid %in% data_igt$DAid) |> 
+          left_join(disease_count) |> 
+          mutate(n = factor(n),
+                 n = ifelse(is.na(n), "0", n)),
+        color = "n")
+
+do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_status),
+        metadata |> 
+          filter(DAid %in% data_igt$DAid) |> 
+          left_join(disease_count) |> 
+          mutate(n = factor(n),
+                 n = ifelse(is.na(n), "0", n)),
+        color = "n")
+```

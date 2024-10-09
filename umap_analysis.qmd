@@ -208,41 +208,14 @@ do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_
 
 ### Sleep Apnea
 
-```{r}http://127.0.0.1:30959/graphics/plot_zoom_png?width=931&height=577
-do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
-        metadata |> mutate(Sleep_apnea = factor(Sleep_apnea)),
-        color = "Sleep_apnea",
-        palette = c("1" = "#A6CEE3", "0" = "lightgrey"))
-
-do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_status),
-        metadata |> mutate(Sleep_apnea = factor(Sleep_apnea)),
-        color = "Sleep_apnea",
-        palette = c("1" = "#A6CEE3", "0" = "lightgrey"))
-```
-
-## Number of diseases per patient
-
 ```{r}
-disease_count <- data_igt |> 
-  select(DAid, all_of(disease_vec)) |> 
-  pivot_longer(cols = -DAid, names_to = "Disease", values_to = "Disease_status") |> 
-  filter(Disease_status == 1) |> 
-  group_by(DAid) |> 
-  summarise(n = n())
-
 do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
-        metadata |> 
-          filter(DAid %in% data_igt$DAid) |> 
-          left_join(disease_count) |> 
-          mutate(n = factor(n),
-                 n = ifelse(is.na(n), "0", n)),
-        color = "n")
+        metadata |> mutate(Sleep_apnea = factor(Sleep_apnea)),
+        color = "Sleep_apnea",
+        palette = c("1" = "#A6CEE3", "0" = "lightgrey"))
 
 do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_status),
-        metadata |> 
-          filter(DAid %in% data_igt$DAid) |> 
-          left_join(disease_count) |> 
-          mutate(n = factor(n),
-                 n = ifelse(is.na(n), "0", n)),
-        color = "n")
+        metadata |> mutate(Sleep_apnea = factor(Sleep_apnea)),
+        color = "Sleep_apnea",
+        palette = c("1" = "#A6CEE3", "0" = "lightgrey"))
 ```
