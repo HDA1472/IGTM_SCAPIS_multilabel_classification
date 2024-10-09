@@ -35,7 +35,7 @@ disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC"
 ```
 
 ```{r}
-glucosegroup_palette <- c("NGT_lowFINDRISC" = "#ffffff",
+glucosegroup_palette <- c("NGT_lowFINDRISC" = "#ffdddd",
                           "NGT_highFINDRISC" = "#d6cace",
                           "IFG" = "#ac98a2",
                           "IGT" = "#836879", 
