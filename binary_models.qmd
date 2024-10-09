@@ -201,6 +201,10 @@ lasso_onlyproteins_auc <- readRDS("results/models_results/lasso_onlyproteins_auc
 
 ## Proteomics + clinical vs. only proteomics
 
+We see that the results generally do not change a lot. For T2D, IGT, and MS the AUC is significantly lower and the number of features is higher when using only proteomics, especially the top features (>50% Importance).
+
+Number of features
+
 ```{r}
 lasso_features |> 
   select(Disease, Variable) |> 
@@ -220,6 +224,8 @@ lasso_features |>
   theme_hpa() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
+
+Number of top features
 
 ```{r}
 lasso_features |> 
@@ -242,6 +248,8 @@ lasso_features |>
   theme_hpa() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
+
+AUC
 
 ```{r}
 lasso_auc |> 
