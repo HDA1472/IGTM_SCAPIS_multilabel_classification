@@ -122,6 +122,33 @@ res$auc |>
 
 # Number of diseases per patient
 
+```{r}
+disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
+```
+
+```{r, message = FALSE, results = 'hide'}
+lasso_features <- readRDS("results/models_results/lasso_features.RData")
+```
+
+Select feature panel. I select features that have more than 50% Importance. In case that the disease has less than 3 features with more than 50% Importance, I select the top 3 features. On the other hand, if a disease has more than 30 features with more than 50% Importance, I select the top 20 features.
+
+```{r}
+top_3_protein <- lasso_features |> 
+  group_by(Disease) |> 
+  top_n(3, wt = Scaled_Importance)
+  
+proteomics_features_50 <- lasso_features |> 
+  filter(Scaled_Importance > 50) |> 
+  group_by(Disease) |>
+  slice_max(order_by = Scaled_Importance, n = 20) |> 
+  ungroup()
+
+proteomics_features_list <- proteomics_features_50 |> 
+  bind_rows(top_3_protein) |>
+  pull(Variable) |> 
+  unique()
+```
+
 ## UMAP analysis
 
 ```{r}
@@ -241,6 +268,44 @@ ggplot(combined_data, aes(x = factor(ndisease), y = weight, fill = Disease)) +
   scale_fill_manual(values = class_palette) +
   theme(axis.text.x = element_text(angle = 0, hjust = 1)) +
   theme_hpa()
+```
+
+Upset plot for disease overlap.
+
+```{r}
+disease_palette <- c("Obesity" = "#E7662B", 
+                     "IGT" = "#836879", 
+                     "T2D" = "#321433",
+                     "MS" = "#08585A", 
+                     "MASLD" = "#FFD321", 
+                     "Carotid_plaque" = "#E8A29A", 
+                     "CAC" = "#9E0142", 
+                     "Sleep_apnea" = "#A6CEE3")
+```
+
+```{r}
+disease_list <- data_igt |> 
+  select(DAid, all_of(disease_vec)) |>
+  pivot_longer(cols = -DAid, names_to = "Disease", values_to = "Disease_status") |>
+  filter(Disease_status == 1) |>
+  select(-Disease_status) |> 
+  group_by(Disease) |> 
+  summarise(DAid = list(DAid)) |> 
+  deframe()
+
+feature_names <- names(disease_list)
+ordered_colors <- disease_palette[feature_names]
+frequencies <- sapply(disease_list, length)
+ordered_feature_names <- names(sort(frequencies, decreasing = TRUE))
+ordered_colors <- ordered_colors[ordered_feature_names]
+
+upset <- UpSetR::fromList(disease_list)
+
+UpSetR::upset(upset,
+              sets = ordered_feature_names,
+              order.by = "freq",
+              nsets = length(ordered_feature_names),
+              sets.bar.color = ordered_colors)
 ```
 
 Confusion matrix visualization.
