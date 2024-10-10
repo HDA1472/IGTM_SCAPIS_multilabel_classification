@@ -178,6 +178,7 @@ names(res) <- disease_vec
 saveRDS(res, file="results/models/lasso_binary_onlyproteins.RData")
 ```
 
+
 ```{r}
 res_all <- extract_model_res(res, disease_vec)
 
@@ -186,6 +187,45 @@ auc <- res_all$auc
 
 saveRDS(features, file="results/models_results/lasso_onlyproteins_features.RData")
 saveRDS(auc, file="results/models_results/lasso_onlyproteins_auc.RData")
+```
+
+# Binary models - only clinical
+
+```{r}
+metadata_cols <- c("Sex", "Age", "Smoke_status", "MAP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT")
+```
+
+## LASSO
+
+Loop over diseases.
+
+```{r}
+res <- lapply(disease_vec, function(disease) {
+  print(paste(disease, "model:"))
+  
+  discovery_cohort <- data_igt |>
+    select(DAid, all_of(c(disease, metadata_cols)))
+
+  model_res <- lasso(discovery_cohort, disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 30)
+  boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
+  return(c(model_res, list("boxplot" = boxplot)))
+})
+
+names(res) <- disease_vec
+```
+
+```{r}
+saveRDS(res, file="results/models/lasso_binary_onlyclinical.RData")
+```
+
+```{r}
+res_all <- extract_model_res(res, disease_vec)
+
+features <- res_all$features
+auc <- res_all$auc
+
+saveRDS(features, file="results/models_results/lasso_onlyclinical_features.RData")
+saveRDS(auc, file="results/models_results/lasso_onlyclinical_auc.RData")
 ```
 
 # Analysis of model results
@@ -197,9 +237,11 @@ lasso_features <- readRDS("results/models_results/lasso_features.RData")
 lasso_auc <- readRDS("results/models_results/lasso_auc.RData")
 lasso_onlyproteins_features <- readRDS("results/models_results/lasso_onlyproteins_features.RData")
 lasso_onlyproteins_auc <- readRDS("results/models_results/lasso_onlyproteins_auc.RData")
+lasso_onlyclinical_features <- readRDS("results/models_results/lasso_onlyclinical_features.RData")
+lasso_onlyclinical_auc <- readRDS("results/models_results/lasso_onlyclinical_auc.RData")
 ```
 
-## Proteomics + clinical vs. only proteomics
+## Proteomics + clinical vs. only proteomics + clinical
 
 We see that the results generally do not change a lot. For T2D, IGT, and MS the AUC is significantly lower and the number of features is higher when using only proteomics, especially the top features (>50% Importance).
 
@@ -255,11 +297,12 @@ AUC
 lasso_auc |> 
   select(Disease, AUC) |> 
   mutate(Predictors = "Combined") |> 
-  bind_rows(lasso_onlyproteins_auc |> select(Disease, AUC) |> mutate(Predictors = "Only proteins")) |> 
+  bind_rows(lasso_onlyproteins_auc |> select(Disease, AUC) |> mutate(Predictors = "Only proteins"),
+            lasso_onlyclinical_auc |> select(Disease, AUC) |> mutate(Predictors = "Only clinical")) |> 
   ggplot(aes(x = Disease, y = AUC, fill = Predictors)) +
   geom_bar(stat = "identity", position = "dodge") +
   geom_text(aes(label = round(AUC, 2)), position = position_dodge(width = 1), vjust = -0.5) +
-  scale_fill_manual(values = c("Combined" = "darkblue", "Only proteins" = "red4")) +
+  scale_fill_manual(values = c("Combined" = "darkblue", "Only proteins" = "red4", "Only clinical" = "green4")) +
   labs(y = "AUC") +
   theme_hpa() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
@@ -349,26 +392,30 @@ lasso_onlyproteins_features |>
     clustering_method = "ward.D2")
 ```
 
+### Only clinical
+
 No filter at all.
 
 ```{r}
-disease_list <- lasso_onlyproteins_features |> 
-  select(Disease, Variable) |>
-  group_by(Disease) |> 
-  summarise(Variable = list(Variable)) |> 
-  deframe()
-
-feature_names <- names(disease_list)
-ordered_colors <- disease_palette[feature_names]
-frequencies <- sapply(disease_list, length)
-ordered_feature_names <- names(sort(frequencies, decreasing = TRUE))
-ordered_colors <- ordered_colors[ordered_feature_names]
-
-upset <- UpSetR::fromList(disease_list)
-
-UpSetR::upset(upset,
-              sets = ordered_feature_names,
-              order.by = "freq",
-              nsets = length(ordered_feature_names),
-              sets.bar.color = ordered_colors)
+lasso_onlyclinical_features |> 
+  select(Variable, Disease, Scaled_Importance, Sign) |>
+  rename(Protein = Variable) |> 
+  mutate(Importance = if_else(Sign == "POS", round(Scaled_Importance, 2), -round(Scaled_Importance, 2))) |> 
+  select(-Sign, -Scaled_Importance) |> 
+  pivot_wider(names_from = Disease, values_from = Importance) |>
+  mutate(across(everything(), ~ replace_na(., 0))) |> 
+  pivot_longer(cols = -Protein, names_to = "Disease", values_to = "Importance") |> 
+  left_join(lasso_auc, by = "Disease") |>
+  tidyheatmap(
+    rows = Disease,
+    columns = Protein,
+    values = Importance,
+    colors = c("darkblue", "white", "red4"),
+    annotation_row = c(AUC),
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    legend_breaks = c(-100, -50, 0, 50, 100),
+    legend_labels = c("-100", "-50", "0", "50", "100"),
+    show_colnames = TRUE,
+    clustering_method = "ward.D2")
 ```
