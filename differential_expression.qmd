@@ -75,3 +75,47 @@ de_all <- bind_rows(de_all)
 ```
 
 # Analysis of DE results
+
+```{r}
+de_all |> 
+  filter(adj.P.Val < 0.05) |> 
+  arrange(desc(logFC)) |> 
+  group_by(Disease) |>
+  top_n(20, logFC) |> 
+  ungroup() |>
+  select(Disease, Assay, logFC) |> 
+  rename(Protein = Assay) |> 
+  pivot_wider(names_from = Disease, values_from = logFC) |>
+  mutate(across(everything(), ~ replace_na(., 0))) |> 
+  pivot_longer(cols = -Protein, names_to = "Disease", values_to = "logFC") |> 
+  tidyheatmap(
+    rows = Disease,
+    columns = Protein,
+    values = logFC,
+    colors = c("white", "red4"),
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    show_colnames = TRUE,
+    clustering_method = "ward.D2")
+```
+de_top20logfc_heatmap
+```{r}
+de_all |> 
+  filter(adj.P.Val < 0.05, logFC > 0.5) |> 
+  arrange(desc(logFC)) |> 
+  
+  select(Disease, Assay, logFC) |> 
+  rename(Protein = Assay) |> 
+  pivot_wider(names_from = Disease, values_from = logFC) |>
+  mutate(across(everything(), ~ replace_na(., 0))) |> 
+  pivot_longer(cols = -Protein, names_to = "Disease", values_to = "logFC") |> 
+  tidyheatmap(
+    rows = Disease,
+    columns = Protein,
+    values = logFC,
+    colors = c("white", "red4"),
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    show_colnames = TRUE,
+    clustering_method = "ward.D2")
+```
