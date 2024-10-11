@@ -415,7 +415,9 @@ All of the top features are identified by Olink insight as all-cause mortality b
 
 ```{r}
 allcausemortalitymarkers <- olink_insight |>
-  filter(phenotype == "All-cause mortality") |>
+  filter(phenotype == "All-cause mortality",
+         adjusted_pval < 0.05,
+         hazard_ratio > 1.0) |>
   pull(Assay) |> 
   unique()
 
@@ -430,5 +432,9 @@ ndiseasemodel$features |>
 ndiseasemodel$features |> 
   #filter(Scaled_Importance > 50) |> 
   mutate(all_cause_mortality = ifelse(Variable %in% allcausemortalitymarkers, "Yes", "No")) |> 
-  filter(all_cause_mortality == "No")
+  filter(all_cause_mortality == "Yes") |> 
+  rename(Assay = Variable) |>
+  left_join(olink_insight |> 
+              filter(phenotype == "All-cause mortality") |> 
+              select(Assay, hazard_ratio, adjusted_pval))
 ```
