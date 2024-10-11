@@ -65,10 +65,14 @@ saveRDS(res, file="results/models/lasso_glucosegroups_multiclass.RData")
 
 ## Visualize model results
 
+```{r}
+glucosemodel <- readRDS("results/models/lasso_glucosegroups_multiclass.RData")
+```
+
 Confusion matrix visualization.
 
 ```{r}
-cm_table <- as.data.frame(as.table(res$confusion_matrix$table))
+cm_table <- as.data.frame(as.table(glucosemodel$confusion_matrix$table))
 colnames(cm_table) <- c("Predicted", "Actual", "Freq")
 cm_table |> 
   mutate(Predicted = factor(Predicted, levels = c("NGT_lowFINDRISC", "NGT_highFINDRISC", "IFG", "IGT", "CGI", "T2D_new")),
@@ -85,7 +89,7 @@ cm_table |>
 Boxplots of top-features (\>50% Importance). HbA1c is a typical T2D clinical predictor.
 
 ```{r}
-top_features <- res$features |> 
+top_features <- glucosemodel$features |> 
   filter(Scaled_Importance > 50) |> 
   pull(Variable)
 
@@ -107,7 +111,7 @@ glucose_discovery |>
 Barplot of AUCs.
 
 ```{r}
-res$auc |> 
+glucosemodel$auc |> 
   filter(Glucose_group %in% c("NGT_lowFINDRISC", "NGT_highFINDRISC", "IFG", "IGT", "CGI", "T2D_new")) |>
   mutate(Glucose_group = factor(Glucose_group, levels = c("NGT_lowFINDRISC", "NGT_highFINDRISC", "IFG", "IGT", "CGI", "T2D_new"))) |> 
   ggplot(aes(x = Glucose_group, y = AUC, fill = Glucose_group)) +
@@ -159,7 +163,7 @@ disease_count <- data_igt |>
   group_by(DAid) |> 
   summarise(n = n())
 
-do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
+umap_res_before <- do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
         metadata |> 
           filter(DAid %in% data_igt$DAid) |> 
           left_join(disease_count) |> 
@@ -167,13 +171,16 @@ do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
                  n = ifelse(is.na(n), "0", n)),
         color = "n")
 
-do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_status),
+umap_res_before$umap_plot + scale_color_brewer(palette = "PuBuGn")
+
+umap_res_after <- do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_status),
         metadata |> 
           filter(DAid %in% data_igt$DAid) |> 
           left_join(disease_count) |> 
           mutate(n = factor(n),
                  n = ifelse(is.na(n), "0", n)),
         color = "n")
+umap_res_after$umap_plot + scale_color_brewer(palette = "PuBuGn")
 ```
 
 ## LASSO multi-class
@@ -203,6 +210,10 @@ saveRDS(res, file="results/models/lasso_ndiseaseperpatient_multiclass.RData")
 ```
 
 ## Visualize model results
+
+```{r}
+ndiseasemodel <- readRDS("results/models/lasso_ndiseaseperpatient_multiclass.RData")
+```
 
 How many patients per disease number?
 
@@ -311,7 +322,7 @@ UpSetR::upset(upset,
 Confusion matrix visualization.
 
 ```{r}
-cm_table <- as.data.frame(as.table(res$confusion_matrix$table))
+cm_table <- as.data.frame(as.table(ndiseasemodel$confusion_matrix$table))
 colnames(cm_table) <- c("Predicted", "Actual", "Freq")
 cm_table |> 
   mutate(Predicted = factor(Predicted, levels = c("0", "1", "2", "3", "4", "5", "6", "7")),
@@ -328,7 +339,7 @@ cm_table |>
 Boxplots of top-features (\>50% Importance). HbA1c is a typical T2D clinical predictor.
 
 ```{r}
-top_features <- res$features |> 
+top_features <- ndiseasemodel$features |> 
   filter(Scaled_Importance > 50) |> 
   pull(Variable)
 
@@ -350,7 +361,7 @@ ndisease_discovery |>
 Barplot of AUCs.
 
 ```{r}
-res$auc |> 
+ndiseasemodel$auc |> 
   filter(ndisease %in% c("0", "1", "2", "3", "4", "5", "6", "7")) |>
   mutate(ndisease = factor(ndisease, levels = c("0", "1", "2", "3", "4", "5", "6", "7"))) |> 
   ggplot(aes(x = ndisease, y = AUC, fill = ndisease)) +
@@ -361,4 +372,63 @@ res$auc |>
   theme_hpa() +
   theme(legend.position = "none",
         axis.text.x = element_text(angle = 0, hjust = 1))
+```
+
+Check if the features correlate with Age.
+
+```{r}
+ndisease_features <- ndiseasemodel$features |> 
+  filter(Scaled_Importance > 50) |> 
+  pull(Variable)
+
+data_igt |> 
+  select(all_of(ndisease_features), Age) |> 
+  pivot_longer(cols = -Age, names_to = "Protein", values_to = "NPX") |>
+  ggplot(aes(x = Age, y = NPX)) +
+  geom_point() +
+  geom_smooth(aes(color = "red")) +
+  facet_wrap(~Protein, scales = "free_y") +
+  theme_hpa() +
+  theme(legend.position = "none")
+```
+
+Check if number of diseases per patient correlates with Age.
+
+```{r}
+ndisease_discovery |> 
+  select(ndisease, Age) |> 
+  ggplot(aes(x = ndisease, y = Age, fill = ndisease)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "PuBuGn") +
+  labs(x = "Number of diseases", y = "Age") +
+  theme_hpa() +
+  theme(legend.position = "none")
+```
+
+Check if the features are identified from Olink insight as all-cause mortality biomarkers.
+
+```{r}
+olink_insight <- import_df("data/raw_data/UkbUnivariateDiseaseAssociations.csv")
+```
+
+All of the top features are identified by Olink insight as all-cause mortality biomarkers.
+
+```{r}
+allcausemortalitymarkers <- olink_insight |>
+  filter(phenotype == "All-cause mortality") |>
+  pull(Assay) |> 
+  unique()
+
+# Filter >50%
+ndiseasemodel$features |> 
+  #filter(Scaled_Importance > 50) |> 
+  mutate(all_cause_mortality = ifelse(Variable %in% allcausemortalitymarkers, "Yes", "No")) |> 
+  filter(Scaled_Importance > 50) |> 
+  count(all_cause_mortality)
+
+# No filter
+ndiseasemodel$features |> 
+  #filter(Scaled_Importance > 50) |> 
+  mutate(all_cause_mortality = ifelse(Variable %in% allcausemortalitymarkers, "Yes", "No")) |> 
+  filter(all_cause_mortality == "No")
 ```
