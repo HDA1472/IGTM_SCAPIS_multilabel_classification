@@ -10,6 +10,7 @@ editor: source
 library(HDAnalyzeR)
 library(tidyverse)
 library(ggalluvial)
+library(tidyheatmaps)
 ```
 
 # Import data & metadata
@@ -53,8 +54,14 @@ proteomics_features_list <- proteomics_features_50 |>
 ```
 
 ```{r}
-proteomics_dataset <- data_igt |> 
+proteomics_dataset <- data_igt |>
   select(DAid, any_of(proteomics_features_list))
+
+scaled_proteomics <- proteomics_dataset |>
+  select(-DAid) |>
+  scale()
+
+proteomics_dataset <- cbind(proteomics_dataset["DAid"], scaled_proteomics)
 ```
 
 ### Identify disease features
@@ -187,6 +194,26 @@ cluster_results |>
         axis.ticks.y = element_blank())
 ```
 
+### Clustered Heatmap
+
+```{r}
+proteomics_dataset |> 
+  pivot_longer(cols = -c("DAid"), names_to = "Features", values_to = "NPX") |> 
+  left_join(metadata |> select(Sex, Age, BMI, DAid), by = "DAid") |>
+  left_join(proteome_cluster_results, by = "DAid") |>
+  mutate(proteome_cluster = factor(proteome_cluster)) |>
+  tidyheatmap(
+    rows = Features,
+    columns = DAid,
+    values = NPX,
+    colors = c("lightblue", "red3"),
+    annotation_col = c(Age, Sex, BMI, proteome_cluster),
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    show_colnames = FALSE,
+    clustering_method = "ward.D2")
+```
+
 ## Exclude CAC, Carotid Plaque and IGT
 
 ### Identify proteomics features
@@ -211,8 +238,14 @@ proteomics_features_list <- proteomics_features_50 |>
 ```
 
 ```{r}
-proteomics_dataset <- data_igt |> 
+proteomics_dataset <- data_igt |>
   select(DAid, any_of(proteomics_features_list))
+
+scaled_proteomics <- proteomics_dataset |>
+  select(-DAid) |>
+  scale()
+
+proteomics_dataset <- cbind(proteomics_dataset["DAid"], scaled_proteomics)
 ```
 
 ### Identify disease features
@@ -351,6 +384,26 @@ cluster_results |>
         axis.ticks.y = element_blank())
 ```
 
+### Clustered Heatmap
+
+```{r}
+proteomics_dataset |> 
+  pivot_longer(cols = -c("DAid"), names_to = "Features", values_to = "NPX") |> 
+  left_join(metadata |> select(Sex, Age, BMI, DAid), by = "DAid") |>
+  left_join(proteome_cluster_results, by = "DAid") |>
+  mutate(proteome_cluster = factor(proteome_cluster)) |>
+  tidyheatmap(
+    rows = Features,
+    columns = DAid,
+    values = NPX,
+    colors = c("lightblue", "red3"),
+    annotation_col = c(Age, Sex, BMI, proteome_cluster),
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    show_colnames = FALSE,
+    clustering_method = "ward.D2")
+```
+
 ## Proteins vs clinical metadata
 
 ### Identify proteomics features
@@ -375,8 +428,14 @@ proteomics_features_list <- proteomics_features_50 |>
 ```
 
 ```{r}
-proteomics_dataset <- data_igt |> 
+proteomics_dataset <- data_igt |>
   select(DAid, any_of(proteomics_features_list))
+
+scaled_proteomics <- proteomics_dataset |>
+  select(-DAid) |>
+  scale()
+
+proteomics_dataset <- cbind(proteomics_dataset["DAid"], scaled_proteomics)
 ```
 
 ### Identify clinical features
@@ -386,8 +445,14 @@ clinical_cols <- c("Age", "MAP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT"
 ```
 
 ```{r}
-clinical_dataset <- data_igt |> 
+clinical_dataset <- data_igt |>
   select(DAid, any_of(clinical_cols))
+
+scaled_clinical <- clinical_dataset |>
+  select(-DAid) |>
+  scale()
+
+clinical_dataset <- cbind(clinical_dataset["DAid"], scaled_clinical)
 ```
 
 ### Hierarchical clustering
@@ -518,8 +583,14 @@ clinical_cols <- c("Age", "MAP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT"
 ```
 
 ```{r}
-clinical_dataset <- data_igt |> 
+clinical_dataset <- data_igt |>
   select(DAid, any_of(clinical_cols))
+
+scaled_clinical <- clinical_dataset |>
+  select(-DAid) |>
+  scale()
+
+clinical_dataset <- cbind(clinical_dataset["DAid"], scaled_clinical)
 ```
 
 ### Hierarchical clustering
