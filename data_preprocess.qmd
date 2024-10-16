@@ -435,3 +435,9 @@ save_df(data_scapis_imputed, "scapis_joined_preprocessed", "data/processed_data"
 save_df(data_igt_imputed, "igt_joined_preprocessed", "data/processed_data", file_type = c("rda"))
 save_df(metadata_preprocessed, "metadata_preprocessed", "data/processed_data", file_type = c("rda"))
 ```
+
+```{r}
+save_df(data_scapis_imputed, "scapis_joined_preprocessed", "data/processed_data", file_type = c("csv"))
+save_df(data_igt_imputed, "igt_joined_preprocessed", "data/processed_data", file_type = c("csv"))
+save_df(metadata_preprocessed, "metadata_preprocessed", "data/processed_data", file_type = c("csv"))
+```

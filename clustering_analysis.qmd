@@ -485,6 +485,24 @@ proteome_cluster_results <- proteomics_dataset |>
   mutate(proteome_cluster = proteome_clusters)
 ```
 
+```{r}
+proteomics_dataset |> 
+  pivot_longer(cols = -c("DAid"), names_to = "Features", values_to = "NPX") |> 
+  left_join(metadata |> select(Sex, Age, BMI, DAid), by = "DAid") |>
+  left_join(proteome_cluster_results, by = "DAid") |>
+  mutate(proteome_cluster = factor(proteome_cluster)) |>
+  tidyheatmap(
+    rows = Features,
+    columns = DAid,
+    values = NPX,
+    colors = c("lightblue", "red3"),
+    annotation_col = c(Age, Sex, BMI, proteome_cluster),
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    show_colnames = FALSE,
+    clustering_method = "ward.D2")
+```
+
 Compare clusters.
 
 ```{r}
