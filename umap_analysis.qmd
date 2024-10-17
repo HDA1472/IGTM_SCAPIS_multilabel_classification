@@ -41,7 +41,7 @@ lasso_features <- readRDS("results/models_results/lasso_features.RData")
 glucosegroup_model_results <- readRDS("results/models/lasso_glucosegroups_multiclass.RData")
 ```
 
-Select feature panel. I select features that have more than 50% Importance. In case that the disease has less than 3 features with more than 50% Importance, I select the top 3 features. On the other hand, if a disease has more than 30 features with more than 50% Importance, I select the top 20 features.
+Select feature panel. I select features that have more than 50% Importance. In case that the disease has less than 3 features with more than 50% Importance, I select the top 3 features. On the other hand, if a disease has more than 20 features with more than 50% Importance, I select the top 20 features.
 
 ```{r}
 top_3_protein <- lasso_features |> 
@@ -60,7 +60,9 @@ proteomics_features_list <- proteomics_features_50 |>
   unique()
 ```
 
-# UMAP - IGT
+# UMAP
+
+## Sex, Age & BMI
 
 There is no separation with most the parameters. There might be a small separation with BMI/Obesity.
 
@@ -187,6 +189,17 @@ do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
         palette = c("1" = "#9E0142", "0" = "lightgrey"))
 
 do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_status),
+        metadata |> mutate(CAC = factor(CAC)),
+        color = "CAC",
+        palette = c("1" = "#9E0142", "0" = "lightgrey"))
+
+# Only CAC features with more than 50% Importance
+cac_features_50 <- lasso_features |> 
+  filter(Disease == "CAC") |> 
+  filter(Scaled_Importance > 50) |> 
+  pull(Variable)
+
+do_umap(data_igt |> select(DAid, any_of(cac_features_50), -Sex, -Smoke_status),
         metadata |> mutate(CAC = factor(CAC)),
         color = "CAC",
         palette = c("1" = "#9E0142", "0" = "lightgrey"))
