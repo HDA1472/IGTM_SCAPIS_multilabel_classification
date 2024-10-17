@@ -67,16 +67,16 @@ There is no separation with most the parameters. There might be a small separati
 Check for sex, age and BMI effects.
 
 ```{r}
-do_umap(all_data,
+do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
         metadata_preprocessed,
         color = "Sex",
         palette = "sex_hpa")
 
-do_umap(all_data,
+do_umap(data_igt |> select(-Sex, -Age, -Smoke_status, -all_of(disease_vec)),
         metadata_preprocessed,
         color = "Age")
 
-do_umap(all_data,
+do_umap(data_igt |> select(-Sex, -BMI, -Smoke_status, -all_of(disease_vec)),
         metadata_preprocessed,
         color = "BMI")
 ```
