@@ -13,6 +13,7 @@ library(tidymodels)
 library(vip)
 library(multiROC)
 library(RColorBrewer)
+library(VennDiagram)
 ```
 
 # Import data & metadata
@@ -153,8 +154,6 @@ proteomics_features_list <- proteomics_features_50 |>
   unique()
 ```
 
-## UMAP analysis
-
 ```{r}
 disease_count <- data_igt |> 
   select(DAid, all_of(disease_vec)) |> 
@@ -163,6 +162,8 @@ disease_count <- data_igt |>
   group_by(DAid) |> 
   summarise(n = n())
 ```
+
+## UMAP analysis
 
 ```{r}
 umap_res_before <- do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
@@ -183,6 +184,31 @@ umap_res_after <- do_umap(data_igt |> select(DAid, any_of(proteomics_features_li
                  n = ifelse(is.na(n), "0", n)),
         color = "n")
 umap_res_after$umap_plot + scale_color_brewer(palette = "PuBuGn")
+```
+
+## PCA analysis
+
+```{r}
+pca_res_before <- do_pca(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
+        metadata |> 
+          filter(DAid %in% data_igt$DAid) |> 
+          left_join(disease_count) |> 
+          mutate(n = factor(n),
+                 n = ifelse(is.na(n), "0", n)),
+        color = "n",
+        pcs = 9)
+
+pca_res_before$pca_plot + scale_color_brewer(palette = "PuBuGn")
+
+pca_res_after <- do_pca(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_status),
+        metadata |> 
+          filter(DAid %in% data_igt$DAid) |> 
+          left_join(disease_count) |> 
+          mutate(n = factor(n),
+                 n = ifelse(is.na(n), "0", n)),
+        color = "n",
+        pcs = 9)
+pca_res_after$pca_plot + scale_color_brewer(palette = "PuBuGn")
 ```
 
 ## LASSO multi-class
@@ -466,4 +492,68 @@ ndiseasemodel$features |>
   left_join(olink_insight |> 
               filter(phenotype == "All-cause mortality") |> 
               select(Assay, hazard_ratio, adjusted_pval))
+```
+
+### UMAP with specific features
+
+If I reduce the threshold the first 2 PCs capture less variance. For >30% PC1 gets from 18% to 10%.
+
+```{r}
+age_features <- ndiseasemodel$features |> filter(Scaled_Importance > 50) |> pull(Variable)
+```
+
+```{r}
+umap_res_features <- do_umap(data_igt |> select(DAid, any_of(age_features), -Sex, -Smoke_status),
+        metadata |> 
+          filter(DAid %in% data_igt$DAid) |> 
+          left_join(disease_count) |> 
+          mutate(n = factor(n),
+                 n = ifelse(is.na(n), "0", n)),
+        color = "n")
+umap_res_features$umap_plot + scale_color_brewer(palette = "PuBuGn")
+```
+
+### PCA with specific features
+
+```{r}
+pca_res_features <- do_pca(data_igt |> select(DAid, any_of(age_features), -Sex, -Smoke_status),
+        metadata |> 
+          filter(DAid %in% data_igt$DAid) |> 
+          left_join(disease_count) |> 
+          mutate(n = factor(n),
+                 n = ifelse(is.na(n), "0", n)),
+        color = "n",
+        pcs = 9)
+pca_res_features$pca_plot + scale_color_brewer(palette = "PuBuGn")
+```
+
+### Check overlap between all-cause mortality and pan-disease panel
+
+```{r}
+protein_sets <- list(Pandisease_panel = proteomics_features_list, Age_panel = age_features)
+
+# Create a Venn diagram with counts and set names inside the circles
+venn.plot <- venn.diagram(
+  x = protein_sets,
+  category.names = c("Pan-disease Panel", "Age Panel"),
+  filename = NULL,
+  output = TRUE,
+  fill = c("lightblue", "lightgreen"),
+  cex = 2,
+  cat.cex = 2,
+  cat.pos = 0,
+  cat.dist = 0.03,
+  print.mode = c("raw")
+)
+
+# Display the Venn diagram
+grid.draw(venn.plot)
+```
+
+Common proteins:
+
+```{r}
+common_proteins <- intersect(proteomics_features_list, age_features)
+
+print(common_proteins)
 ```

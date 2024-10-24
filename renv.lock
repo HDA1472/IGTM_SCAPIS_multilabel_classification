@@ -638,6 +638,19 @@
       ],
       "Hash": "f6ef89503aaff474873f8bc1823894e1"
     },
+    "VennDiagram": {
+      "Package": "VennDiagram",
+      "Version": "1.7.3",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R",
+        "futile.logger",
+        "grid",
+        "methods"
+      ],
+      "Hash": "6b628f0aee185fdb5d6ce2b5eb477e52"
+    },
     "XVector": {
       "Package": "XVector",
       "Version": "0.44.0",
