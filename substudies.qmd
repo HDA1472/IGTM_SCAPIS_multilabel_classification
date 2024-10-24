@@ -499,11 +499,11 @@ ndiseasemodel$features |>
 If I reduce the threshold the first 2 PCs capture less variance. For >30% PC1 gets from 18% to 10%.
 
 ```{r}
-age_features <- ndiseasemodel$features |> filter(Scaled_Importance > 50) |> pull(Variable)
+ndisease_features <- ndiseasemodel$features |> filter(Scaled_Importance > 50) |> pull(Variable)
 ```
 
 ```{r}
-umap_res_features <- do_umap(data_igt |> select(DAid, any_of(age_features), -Sex, -Smoke_status),
+umap_res_features <- do_umap(data_igt |> select(DAid, any_of(ndisease_features), -Sex, -Smoke_status),
         metadata |> 
           filter(DAid %in% data_igt$DAid) |> 
           left_join(disease_count) |> 
@@ -516,7 +516,7 @@ umap_res_features$umap_plot + scale_color_brewer(palette = "PuBuGn")
 ### PCA with specific features
 
 ```{r}
-pca_res_features <- do_pca(data_igt |> select(DAid, any_of(age_features), -Sex, -Smoke_status),
+pca_res_features <- do_pca(data_igt |> select(DAid, any_of(ndisease_features), -Sex, -Smoke_status),
         metadata |> 
           filter(DAid %in% data_igt$DAid) |> 
           left_join(disease_count) |> 
@@ -530,12 +530,12 @@ pca_res_features$pca_plot + scale_color_brewer(palette = "PuBuGn")
 ### Check overlap between all-cause mortality and pan-disease panel
 
 ```{r}
-protein_sets <- list(Pandisease_panel = proteomics_features_list, Age_panel = age_features)
+protein_sets <- list(Pandisease_panel = proteomics_features_list, nDisease_panel = ndisease_features)
 
 # Create a Venn diagram with counts and set names inside the circles
 venn.plot <- venn.diagram(
   x = protein_sets,
-  category.names = c("Pan-disease Panel", "Age Panel"),
+  category.names = c("Pan-disease Panel", "nDisease Panel"),
   filename = NULL,
   output = TRUE,
   fill = c("lightblue", "lightgreen"),
@@ -553,7 +553,7 @@ grid.draw(venn.plot)
 Common proteins:
 
 ```{r}
-common_proteins <- intersect(proteomics_features_list, age_features)
+common_proteins <- intersect(proteomics_features_list, ndisease_features)
 
 print(common_proteins)
 ```
