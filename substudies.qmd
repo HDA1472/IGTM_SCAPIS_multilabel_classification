@@ -162,7 +162,9 @@ disease_count <- data_igt |>
   filter(Disease_status == 1) |> 
   group_by(DAid) |> 
   summarise(n = n())
+```
 
+```{r}
 umap_res_before <- do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
         metadata |> 
           filter(DAid %in% data_igt$DAid) |> 
@@ -207,6 +209,31 @@ res <- lasso_multi(ndisease_discovery, "ndisease", cv_sets = 10, cor_threshold =
 
 ```{r}
 saveRDS(res, file="results/models/lasso_ndiseaseperpatient_multiclass.RData")
+```
+
+## LASSO multi-class - broader classes
+
+```{r}
+ndisease_discovery_broad <- ndisease_discovery |> 
+  mutate(ndisease = case_when(
+    ndisease %in% 0:1 ~ "Low",
+    ndisease %in% 2:3 ~ "Mid",
+    ndisease %in% 4:7 ~ "High"
+  ))
+```
+
+```{r}
+ndisease_discovery_broad |> 
+  group_by(ndisease) |> 
+  summarise(patients = n())
+```
+
+```{r}
+res <- lasso_multi(ndisease_discovery_broad, "ndisease", cv_sets = 10, cor_threshold = 0.9, grid_size = 30)
+```
+
+```{r}
+saveRDS(res, file="results/models/lasso_ndiseaseperpatient_broad_multiclass.RData")
 ```
 
 ## Visualize model results
@@ -382,14 +409,16 @@ ndisease_features <- ndiseasemodel$features |>
   pull(Variable)
 
 data_igt |> 
-  select(all_of(ndisease_features), Age) |> 
-  pivot_longer(cols = -Age, names_to = "Protein", values_to = "NPX") |>
+  select(DAid, all_of(ndisease_features), Age) |>
+  pivot_longer(cols = -c("DAid", "Age"), names_to = "Protein", values_to = "NPX") |>
+  left_join(ndisease_discovery |> select(DAid, ndisease), by = "DAid") |>
   ggplot(aes(x = Age, y = NPX)) +
-  geom_point() +
-  geom_smooth(aes(color = "red")) +
+  geom_point(aes(color = ndisease)) +
+  scale_color_brewer(palette = "PuBuGn") +
+  geom_smooth(color = "black") +
   facet_wrap(~Protein, scales = "free_y") +
   theme_hpa() +
-  theme(legend.position = "none")
+  theme()
 ```
 
 Check if number of diseases per patient correlates with Age.
