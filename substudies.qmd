@@ -266,6 +266,7 @@ saveRDS(res, file="results/models/lasso_ndiseaseperpatient_broad_multiclass.RDat
 
 ```{r}
 ndiseasemodel <- readRDS("results/models/lasso_ndiseaseperpatient_multiclass.RData")
+ndiseasemodel_broad <- readRDS("results/models/lasso_ndiseaseperpatient_broad_multiclass.RData")
 ```
 
 How many patients per disease number?
@@ -389,10 +390,45 @@ cm_table |>
         axis.text.x = element_text(angle = 0, hjust = 1))
 ```
 
+```{r}
+cm_table <- as.data.frame(as.table(ndiseasemodel_broad$confusion_matrix$table))
+colnames(cm_table) <- c("Predicted", "Actual", "Freq")
+cm_table |> 
+  mutate(Predicted = factor(Predicted, levels = c("Low", "Mid", "High")),
+         Actual = factor(Actual, levels = c("Low", "Mid", "High"))) |>
+  ggplot(aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), color = "black") +  
+  scale_fill_gradient2(low = "#ffffff", high = "#ee4445") +  
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 0, hjust = 1))
+```
+
 Boxplots of top-features (\>50% Importance). HbA1c is a typical T2D clinical predictor.
 
 ```{r}
 top_features <- ndiseasemodel$features |> 
+  filter(Scaled_Importance > 50) |> 
+  pull(Variable)
+
+ndisease_discovery |> 
+  select(ndisease, all_of(top_features)) |>
+  pivot_longer(cols = -ndisease, names_to = "Protein", values_to = "NPX") |>
+  mutate(ndisease = factor(ndisease, levels = c("Low", "Mid", "High")),
+         Protein = factor(Protein, levels = top_features)) |>
+  ggplot(aes(x = ndisease, y = NPX, fill = ndisease)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "PuBuGn") +
+  facet_wrap(~Protein, scales = "free_y") +
+  labs(x = "Number of diseases", y = "NPX") +
+  theme_hpa() + 
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 0, hjust = 1))
+```
+
+```{r}
+top_features <- ndiseasemodel_broad$features |> 
   filter(Scaled_Importance > 50) |> 
   pull(Variable)
 
