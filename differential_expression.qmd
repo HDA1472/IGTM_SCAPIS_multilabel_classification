@@ -186,6 +186,8 @@ de_all |>
 
 Continuous importance annotation. >0 filtering.
 
+Metabolic syndrome is very interesting as the features with more than 50% (except 1) are not differentially expressed. However, MS is predicted with an AUC of 0.86.
+
 ```{r}
 disease_palette <- list(Obesity = c("0" = "white", "100" = "#A6CEE3"), 
                         IGT = c("0" = "white", "100" = "#836879"), 
