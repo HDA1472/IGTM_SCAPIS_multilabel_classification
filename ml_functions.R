@@ -168,7 +168,8 @@ lasso <- function(join_data,
                                "auc",
                                "features",
                                "top-features"),
-                  palette = disease_palette) {
+                  palette = disease_palette,
+                  binary_cols = NULL) {
   Variable <- rlang::sym(variable)
   
   # Prepare sets
@@ -196,8 +197,8 @@ lasso <- function(join_data,
     update_role(DAid, new_role = "id") |> 
     step_dummy(all_nominal(), -all_outcomes(), -has_role("id")) |> 
     step_zv(all_predictors(), -has_role("id")) |> 
-    step_normalize(all_numeric(), -all_outcomes(), -has_role("id")) |> 
-    step_corr(all_numeric(), -all_outcomes(), -has_role("id"), threshold = cor_threshold)
+    step_normalize(all_numeric(), -all_outcomes(), -has_role("id"), -all_of(binary_cols)) |> 
+    step_corr(all_numeric(), -all_outcomes(), -has_role("id"), -all_of(binary_cols), threshold = cor_threshold)
   
   model <- logistic_reg(penalty = tune(), mixture = 1) |>
     set_engine("glmnet")
@@ -311,7 +312,8 @@ elasticnet <- function(join_data,
                                     "auc",
                                     "features",
                                     "top-features"),
-                       palette = disease_palette) {
+                       palette = disease_palette,
+                       binary_cols = NULL) {
   Variable <- rlang::sym(variable)
   
   # Prepare sets
@@ -339,8 +341,8 @@ elasticnet <- function(join_data,
     update_role(DAid, new_role = "id") |> 
     step_dummy(all_nominal(), -all_outcomes(), -has_role("id")) |> 
     step_zv(all_predictors(), -has_role("id")) |> 
-    step_normalize(all_numeric(), -all_outcomes(), -has_role("id")) |> 
-    step_corr(all_numeric(), -all_outcomes(), -has_role("id"), threshold = cor_threshold)
+    step_normalize(all_numeric(), -all_outcomes(), -has_role("id"), -all_of(binary_cols)) |> 
+    step_corr(all_numeric(), -all_outcomes(), -has_role("id"), -all_of(binary_cols), threshold = cor_threshold)
   
   model <- logistic_reg(penalty = tune(), mixture = tune()) |>
     set_engine("glmnet")
@@ -454,7 +456,8 @@ rf <- function(join_data,
                             "auc",
                             "features",
                             "top-features"),
-               palette = disease_palette) {
+               palette = disease_palette,
+               binary_cols = NULL) {
   Variable <- rlang::sym(variable)
   
   # Prepare sets
@@ -482,8 +485,8 @@ rf <- function(join_data,
     update_role(DAid, new_role = "id") |> 
     step_dummy(all_nominal(), -all_outcomes(), -has_role("id")) |> 
     step_zv(all_predictors(), -has_role("id")) |> 
-    step_normalize(all_numeric(), -all_outcomes(), -has_role("id")) |> 
-    step_corr(all_numeric(), -all_outcomes(), -has_role("id"), threshold = cor_threshold)
+    step_normalize(all_numeric(), -all_outcomes(), -has_role("id"), -all_of(binary_cols)) |> 
+    step_corr(all_numeric(), -all_outcomes(), -has_role("id"), -all_of(binary_cols), threshold = cor_threshold)
   
   model <- rand_forest(trees = 1000,
                        min_n = tune(),
