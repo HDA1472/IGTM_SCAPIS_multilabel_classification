@@ -131,6 +131,7 @@ de_all |>
 
 ```{r}
 lasso_onlyproteins_features <- readRDS("results/models_results/lasso_onlyproteins_features.RData")
+lasso_onlyproteins <- readRDS(res, file="results/models/lasso_binary_onlyproteins.RData")
 ```
 
 Binary annotation of proteins with importance > 50.
