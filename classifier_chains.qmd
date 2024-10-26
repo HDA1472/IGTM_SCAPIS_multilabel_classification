@@ -31,7 +31,7 @@ source("ml_functions.R")
 # Classifier-chains - clinical + proteomics
 
 ```{r}
-disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
+disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC")
 ```
 
 ```{r}
@@ -50,7 +50,7 @@ disease_palette <- c("Obesity" = "#E7662B",
 Loop over diseases.
 
 ```{r}
-ordered_disease_vec <- c("Obesity", "MS", "MASLD", "Sleep_apnea", "IGT", "T2D",  "Carotid_plaque", "CAC")
+ordered_disease_vec <- c("Obesity", "MS", "MASLD", "IGT", "T2D",  "Carotid_plaque", "CAC")
 
 excluded_diseases <- character()
 

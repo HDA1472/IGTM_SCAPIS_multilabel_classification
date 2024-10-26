@@ -12,6 +12,9 @@ library(tidyverse)
 library(tidymodels)
 library(vip)
 library(tidyheatmaps)
+library(igraph)
+library(ggraph)
+library(ggplot2)
 ```
 
 # Import data & metadata
@@ -227,6 +230,38 @@ saveRDS(features, file="results/models_results/lasso_onlyclinical_features.RData
 saveRDS(auc, file="results/models_results/lasso_onlyclinical_auc.RData")
 ```
 
+# Binary models - diseases + clinical + proteomics
+
+## LASSO
+
+Loop over diseases.
+
+```{r}
+res <- lapply(disease_vec, function(disease) {
+  print(paste(disease, "model:"))
+
+  model_res <- lasso(data_igt, disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 30)
+  boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
+  return(c(model_res, list("boxplot" = boxplot)))
+})
+
+names(res) <- disease_vec
+```
+
+```{r}
+saveRDS(res, file="results/models/lasso_binary_diseases.RData")
+```
+
+```{r}
+res_all <- extract_model_res(res, disease_vec)
+
+features <- res_all$features
+auc <- res_all$auc
+
+saveRDS(features, file="results/models_results/lasso_diseases_features.RData")
+saveRDS(auc, file="results/models_results/lasso_diseases_auc.RData")
+```
+
 # Analysis of model results
 
 ## Import model results
@@ -238,6 +273,7 @@ lasso_onlyproteins_features <- readRDS("results/models_results/lasso_onlyprotein
 lasso_onlyproteins_auc <- readRDS("results/models_results/lasso_onlyproteins_auc.RData")
 lasso_onlyclinical_features <- readRDS("results/models_results/lasso_onlyclinical_features.RData")
 lasso_onlyclinical_auc <- readRDS("results/models_results/lasso_onlyclinical_auc.RData")
+lasso_diseases_features <- readRDS("results/models_results/lasso_diseases_features.RData")
 ```
 
 ## Proteomics + clinical vs. only proteomics + clinical
@@ -418,3 +454,72 @@ lasso_onlyclinical_features |>
     show_colnames = TRUE,
     clustering_method = "ward.D2")
 ```
+
+## Model feature network
+
+```{r}
+importance_score <- 30
+
+features_per_model <- lasso_diseases_features |> 
+  filter(Scaled_Importance >= importance_score) |>
+  group_by(Disease) |> 
+  summarise(Features = list(unique(Variable))) |> 
+  deframe()
+
+shared_features_matrix <- combn(names(features_per_model), 2, function(models) {
+  model1 <- models[1]
+  model2 <- models[2]
+  
+  # Count of shared features between each pair of models
+  shared_features <- length(intersect(features_per_model[[model1]], features_per_model[[model2]]))
+  
+  # Determine edge color
+  bidirectional <- model2 %in% features_per_model[[model1]] && model1 %in% features_per_model[[model2]]
+  unidirectional <- model2 %in% features_per_model[[model1]] || model1 %in% features_per_model[[model2]]
+  
+  edge_color <- if (bidirectional) "#4682B4" else if (unidirectional) "#DB7093" else "lightgrey"
+  
+  # Return a named list
+  list(Model1 = model1, Model2 = model2, SharedFeatures = shared_features, EdgeColor = edge_color)
+}, simplify = FALSE)
+
+# Convert the list of lists to a data frame
+shared_features_df <- map_dfr(shared_features_matrix, ~ as_tibble(.))
+
+# Convert SharedFeatures column to numeric
+shared_features_matrix$SharedFeatures <- as.numeric(shared_features_matrix$SharedFeatures)
+
+node_sizes <- lasso_diseases_features |> 
+  filter(Scaled_Importance >= importance_score) |>
+  group_by(Disease) |> 
+  summarise(TotalFeatures = n())
+```
+
+```{r}
+set.seed(126)
+
+# Create an igraph object
+graph <- graph_from_data_frame(shared_features_df, vertices = node_sizes, directed = FALSE)
+
+# Map node sizes to the number of total features, and edge widths to shared features
+ggraph(graph, layout = "fr") +
+  geom_edge_link(aes(width = SharedFeatures, color = EdgeColor), show.legend = FALSE) +
+  geom_node_point(aes(size = TotalFeatures, color = name)) +
+  scale_edge_color_identity() +
+  scale_edge_width_continuous(range = c(0.5, 2)) +
+  scale_size_continuous(range = c(4, 10)) +
+  scale_color_manual(values = disease_palette) +
+  theme_void() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_blank(),
+    axis.ticks = element_blank(),
+    axis.text = element_blank()
+  ) +
+  labs(title = "Feature Sharing Among Models",
+       subtitle = "Node size ~ important features, Edge thickness ~ shared features") +
+  guides(size = guide_legend(title = "Total Features"),
+         color = guide_legend(title = "Disease"))
+
+```
+
