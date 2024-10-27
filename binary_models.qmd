@@ -14,6 +14,7 @@ library(vip)
 library(tidyheatmaps)
 library(igraph)
 library(ggraph)
+library(tidygraph)
 library(ggplot2)
 ```
 
@@ -262,6 +263,42 @@ saveRDS(features, file="results/models_results/lasso_diseases_features.RData")
 saveRDS(auc, file="results/models_results/lasso_diseases_auc.RData")
 ```
 
+# Binary models - diseases + proteomics
+
+```{r}
+metadata_cols <- c("Sex", "Age", "Smoke_status", "MAP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT")
+```
+
+## LASSO
+
+Loop over diseases.
+
+```{r}
+res <- lapply(disease_vec, function(disease) {
+  print(paste(disease, "model:"))
+
+  model_res <- lasso(data_igt |> select(-any_of(metadata_cols)), disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 30)
+  boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
+  return(c(model_res, list("boxplot" = boxplot)))
+})
+
+names(res) <- disease_vec
+```
+
+```{r}
+saveRDS(res, file="results/models/lasso_binary_diseases_onlyproteins.RData")
+```
+
+```{r}
+res_all <- extract_model_res(res, disease_vec)
+
+features <- res_all$features
+auc <- res_all$auc
+
+saveRDS(features, file="results/models_results/lasso_diseases_onlyproteins_features.RData")
+saveRDS(auc, file="results/models_results/lasso_diseases_onlyproteins_auc.RData")
+```
+
 # Analysis of model results
 
 ## Import model results
@@ -274,6 +311,7 @@ lasso_onlyproteins_auc <- readRDS("results/models_results/lasso_onlyproteins_auc
 lasso_onlyclinical_features <- readRDS("results/models_results/lasso_onlyclinical_features.RData")
 lasso_onlyclinical_auc <- readRDS("results/models_results/lasso_onlyclinical_auc.RData")
 lasso_diseases_features <- readRDS("results/models_results/lasso_diseases_features.RData")
+lasso_diseases_onlyproteins_features <- readRDS("results/models_results/lasso_diseases_onlyproteins_features.RData")
 ```
 
 ## Proteomics + clinical vs. only proteomics + clinical
@@ -458,7 +496,7 @@ lasso_onlyclinical_features |>
 ## Model feature network
 
 ```{r}
-importance_score <- 30
+importance_score <- 50
 
 features_per_model <- lasso_diseases_features |> 
   filter(Scaled_Importance >= importance_score) |>
@@ -500,13 +538,16 @@ set.seed(126)
 
 # Create an igraph object
 graph <- graph_from_data_frame(shared_features_df, vertices = node_sizes, directed = FALSE)
+graph <- as_tbl_graph(graph) |> 
+  activate(edges) |> 
+  filter(SharedFeatures > 0)
 
 # Map node sizes to the number of total features, and edge widths to shared features
 ggraph(graph, layout = "fr") +
-  geom_edge_link(aes(width = SharedFeatures, color = EdgeColor), show.legend = FALSE) +
+  geom_edge_link(aes(width = SharedFeatures, color = EdgeColor), show.legend = TRUE) +
   geom_node_point(aes(size = TotalFeatures, color = name)) +
   scale_edge_color_identity() +
-  scale_edge_width_continuous(range = c(0.5, 2)) +
+  scale_edge_width_continuous(range = c(0.5, 4)) +
   scale_size_continuous(range = c(4, 10)) +
   scale_color_manual(values = disease_palette) +
   theme_void() +
@@ -516,9 +557,10 @@ ggraph(graph, layout = "fr") +
     axis.ticks = element_blank(),
     axis.text = element_blank()
   ) +
-  labs(title = "Feature Sharing Among Models",
+  labs(title = "Feature Sharing Among Models (LASSO >0% Importance)",
        subtitle = "Node size ~ important features, Edge thickness ~ shared features") +
   guides(size = guide_legend(title = "Total Features"),
+         edge_width = guide_legend(title = "Shared Features"),
          color = guide_legend(title = "Disease"))
 
 ```
