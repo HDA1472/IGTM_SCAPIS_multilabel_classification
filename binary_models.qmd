@@ -496,9 +496,9 @@ lasso_onlyclinical_features |>
 ## Model feature network
 
 ```{r}
-importance_score <- 50
+importance_score <- 0
 
-features_per_model <- lasso_diseases_features |> 
+features_per_model <- lasso_diseases_onlyproteins_features |> 
   filter(Scaled_Importance >= importance_score) |>
   group_by(Disease) |> 
   summarise(Features = list(unique(Variable))) |> 
