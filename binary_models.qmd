@@ -241,7 +241,7 @@ Loop over diseases.
 res <- lapply(disease_vec, function(disease) {
   print(paste(disease, "model:"))
 
-  model_res <- lasso(data_igt, disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 30)
+  model_res <- lasso(data_igt, disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 30, binary_cols = disease_vec)
   boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
   return(c(model_res, list("boxplot" = boxplot)))
 })
@@ -277,7 +277,7 @@ Loop over diseases.
 res <- lapply(disease_vec, function(disease) {
   print(paste(disease, "model:"))
 
-  model_res <- lasso(data_igt |> select(-any_of(metadata_cols)), disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 30)
+  model_res <- lasso(data_igt |> select(-any_of(metadata_cols)), disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 30, binary_cols = disease_vec)
   boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
   return(c(model_res, list("boxplot" = boxplot)))
 })
@@ -496,7 +496,7 @@ lasso_onlyclinical_features |>
 ## Model feature network
 
 ```{r}
-importance_score <- 0
+importance_score <- 50
 
 features_per_model <- lasso_diseases_onlyproteins_features |> 
   filter(Scaled_Importance >= importance_score) |>
@@ -527,7 +527,7 @@ shared_features_df <- map_dfr(shared_features_matrix, ~ as_tibble(.))
 # Convert SharedFeatures column to numeric
 shared_features_matrix$SharedFeatures <- as.numeric(shared_features_matrix$SharedFeatures)
 
-node_sizes <- lasso_diseases_features |> 
+node_sizes <- lasso_diseases_onlyproteins_features |> 
   filter(Scaled_Importance >= importance_score) |>
   group_by(Disease) |> 
   summarise(TotalFeatures = n())

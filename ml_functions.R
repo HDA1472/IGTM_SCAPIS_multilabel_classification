@@ -198,7 +198,7 @@ lasso <- function(join_data,
     step_dummy(all_nominal(), -all_outcomes(), -has_role("id")) |> 
     step_zv(all_predictors(), -has_role("id")) |> 
     step_normalize(all_numeric(), -all_outcomes(), -has_role("id"), -all_of(binary_cols)) |> 
-    step_corr(all_numeric(), -all_outcomes(), -has_role("id"), -all_of(binary_cols), threshold = cor_threshold)
+    step_corr(all_numeric(), -all_outcomes(), -has_role("id"), -any_of(binary_cols), threshold = cor_threshold)
   
   model <- logistic_reg(penalty = tune(), mixture = 1) |>
     set_engine("glmnet")
