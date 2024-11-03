@@ -385,8 +385,8 @@ elasticnet <- function(join_data,
   res <- bind_cols(res, test_set |> select(!!Variable))
   
   accuracy <- res |> accuracy(!!Variable, .pred_class)
-  sensitivity <- res |> sensitivity(!!Variable, .pred_class)
-  specificity <- res |> specificity(!!Variable, .pred_class)
+  sensitivity <- res |> sensitivity(!!Variable, .pred_class, event_level = "second")
+  specificity <- res |> specificity(!!Variable, .pred_class, event_level = "second")
   auc <- preds |> collect_metrics()
   cm <- res |> conf_mat(!!Variable, .pred_class)
   roc <- preds |>
@@ -539,8 +539,8 @@ rf <- function(join_data,
   res <- bind_cols(res, test_set |> select(!!Variable))
   
   accuracy <- res |> accuracy(!!Variable, .pred_class)
-  sensitivity <- res |> sensitivity(!!Variable, .pred_class)
-  specificity <- res |> specificity(!!Variable, .pred_class)
+  sensitivity <- res |> sensitivity(!!Variable, .pred_class, event_level = "second")
+  specificity <- res |> specificity(!!Variable, .pred_class, event_level = "second")
   auc <- preds |> collect_metrics()
   cm <- res |> conf_mat(!!Variable, .pred_class)
   roc <- preds |>
