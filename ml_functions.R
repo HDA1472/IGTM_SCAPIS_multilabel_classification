@@ -299,6 +299,167 @@ lasso <- function(join_data,
 }
 
 
+## LASSO with PCs
+lasso_pca <- function(join_data,
+                      variable,
+                      seed = 123,
+                      cv_sets = 5,
+                      grid_size = 10,
+                      subtitle = c("accuracy",
+                                   "sensitivity",
+                                   "specificity",
+                                   "auc",
+                                   "features",
+                                   "top-features"),
+                      palette = disease_palette,
+                      binary_cols = NULL,
+                      npcs = 100) {
+  Variable <- rlang::sym(variable)
+  
+  # Prepare sets
+  set.seed(seed)
+  data_split <- initial_split(join_data, prop = 0.8, strata = !!Variable)
+  
+  train_set <- training(data_split) |> 
+    mutate(!!Variable := as.factor(!!Variable))
+  test_set <- testing(data_split) |> 
+    mutate(!!Variable := as.factor(!!Variable))
+  
+  train_set <- balance_groups(train_set,
+                              variable,
+                              case = 1,
+                              seed)
+  
+  train_folds <- vfold_cv(train_set, v = cv_sets, strata = !!Variable)
+  
+  print("Starting training...")
+  
+  # Train model - hyperparameter optimization
+  formula <- stats::as.formula(paste(variable, "~ ."))
+  
+  recipe <- recipe(formula, data = train_set) |> 
+    update_role(DAid, new_role = "id") |> 
+    step_dummy(all_nominal(), -all_outcomes(), -has_role("id")) |> 
+    step_zv(all_predictors(), -has_role("id")) |> 
+    step_normalize(all_numeric(), -all_outcomes(), -has_role("id"), -all_of(binary_cols)) |> 
+    step_pca(all_numeric(), num_comp = npcs, id = "my_pca")
+  
+  # Prepare the recipe (calculate PCA on training data)
+  prepared_pca_recipe <- prep(recipe, training = train_set)
+  
+  pca_data <- juice(prepared_pca_recipe)
+  pca_loadings <- tidy(prepared_pca_recipe, id = "my_pca")
+  pca_variance <- prepared_pca_recipe |> 
+    tidy(type = "variance", id = "my_pca") |> 
+    filter(terms %in% c("percent variance", "cumulative percent variance")) |>
+    pivot_wider(names_from = terms, values_from = value) |>
+    select(-id)
+  
+  pca_variance <- pca_variance |>
+    dplyr::pull(`percent variance`)
+  
+  model <- logistic_reg(penalty = tune(), mixture = 1) |>
+    set_engine("glmnet")
+  
+  workflow <- workflow() |> 
+    add_recipe(recipe) |> 
+    add_model(model)
+  
+  grid <- workflow |> 
+    extract_parameter_set_dials() |>
+    grid_space_filling(size = grid_size, type = "latin_hypercube")
+  
+  roc_res <- metric_set(roc_auc)
+  
+  ctrl <- control_grid(save_pred = TRUE, parallel_over = "everything", verbose = TRUE)
+  tune <- workflow |>
+    tune_grid(train_folds, grid = grid, control = ctrl, metrics = roc_res)
+  
+  print("Selecting best model...")
+  
+  # Select best model - Final fit
+  best <- tune |>
+    select_best(metric = "roc_auc") |>
+    select(-.config)
+  
+  final_wf <- finalize_workflow(workflow, best)
+  
+  final <- final_wf |>
+    fit(train_set)
+  
+  print("Evaluating model...")
+  
+  # Evaluate model
+  splits <- make_splits(train_set, test_set)
+  
+  preds <- last_fit(final_wf, splits, metrics = metric_set(roc_auc))
+  
+  res <- predict(final, new_data = test_set)
+  
+  res <- bind_cols(res, test_set |> select(!!Variable))
+  
+  accuracy <- res |> accuracy(!!Variable, .pred_class)
+  sensitivity <- res |> sensitivity(!!Variable, .pred_class, event_level = "second")
+  specificity <- res |> specificity(!!Variable, .pred_class, event_level = "second")
+  auc <- preds |> collect_metrics()
+  cm <- res |> conf_mat(!!Variable, .pred_class)
+  roc <- preds |>
+    collect_predictions(summarize = F) |>
+    roc_curve(truth = !!Variable, .pred_0) |>
+    ggplot(aes(x = 1 - specificity, y = sensitivity)) +
+    geom_path(colour = palette[variable], linewidth = 2) +
+    geom_abline(lty = 3) +
+    coord_equal() +
+    theme_hpa()
+  
+  # Feature importance
+  features <- final |>
+    extract_fit_parsnip() |>
+    vi() |>
+    mutate(Importance = abs(Importance),
+           Variable = forcats::fct_reorder(Variable, Importance)) |>
+    arrange(desc(Importance)) |>
+    mutate(Scaled_Importance = scales::rescale(Importance, to = c(0, 100))) |>
+    filter(Scaled_Importance > 0)
+  
+  subtitle_text <- generate_subtitle(features, 
+                                     accuracy$.estimate, 
+                                     sensitivity$.estimate, 
+                                     specificity$.estimate, 
+                                     auc$.estimate, 
+                                     subtitle)
+  
+  var_imp_plot <- features |>
+    ggplot(aes(x = Scaled_Importance, y = Variable)) +
+    geom_col(aes(fill = ifelse(Scaled_Importance > 50, variable, NA))) +
+    labs(y = NULL) +
+    scale_x_continuous(breaks = c(0, 100), expand = c(0, 0)) +  # Keep x-axis tick labels at 0 and 100
+    scale_fill_manual(values = palette, na.value = "grey50") +
+    ggtitle(label = paste0(variable, ''),
+            subtitle = subtitle_text) +
+    xlab('Importance') +
+    ylab('Features') +
+    theme_classic() +
+    theme(legend.position = "none",
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank())
+  
+  return(list("final_wf" = final_wf,
+              "res" = res,
+              "pca_data" = pca_data,
+              "pca_loadings" = pca_loadings,
+              "pca_variance" = pca_variance,
+              "accuracy" = accuracy$.estimate,
+              "sensitivity" = sensitivity$.estimate,
+              "specificity" = specificity$.estimate,
+              "auc" = auc$.estimate,
+              "confusion_matrix" = cm,
+              "roc_curve" = roc,
+              "features" = features,
+              "var_imp_plot" = var_imp_plot))
+}
+
+
 # Elastic Net
 elasticnet <- function(join_data,
                        variable,

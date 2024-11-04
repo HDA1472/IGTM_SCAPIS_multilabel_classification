@@ -299,6 +299,71 @@ saveRDS(features, file="results/models_results/lasso_diseases_onlyproteins_featu
 saveRDS(auc, file="results/models_results/lasso_diseases_onlyproteins_auc.RData")
 ```
 
+
+# Binary models - PCs
+
+## LASSO
+
+Loop over diseases.
+
+```{r}
+# heatmap_disease_palette <- list(Obesity = c("0" = "white", "1" = "#A6CEE3"), 
+#                                 IGT = c("0" = "white", "1" = "#836879"), 
+#                                 T2D = c("0" = "white", "1" = "#321433"),
+#                                 MS = c("0" = "white", "1" = "#08585A"), 
+#                                 MASLD = c("0" = "white", "1" = "#FFD321"), 
+#                                 Carotid_plaque = c("0" = "white", "1" = "#E8A29A"), 
+#                                 CAC = c("0" = "white", "1" = "#9E0142"))
+# 
+# pca_res$pca_res |> 
+#   mutate(across(where(is.numeric), ~ (. - min(.)) / (max(.) - min(.)))) |> 
+#   pivot_longer(cols = -DAid, names_to = "PCs", values_to = "Value") |> 
+#   left_join(data_igt |> select(all_of(c("DAid", disease_vec)))) |> 
+#   tidyheatmap(
+#     rows = PCs,
+#     columns = DAid,
+#     values = Value,
+#     colors = c("white", "red4"),
+#     annotation_col = c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC"),
+#     annotation_colors = heatmap_disease_palette,
+#     annotation_legend = FALSE,
+#     cluster_rows = TRUE,
+#     cluster_cols = TRUE,
+#     show_colnames = TRUE,
+#     clustering_method = "ward.D2"
+#   )
+```
+
+```{r}
+res <- lapply(disease_vec, function(disease) {
+  print(paste(disease, "model:"))
+  cols_to_exclude <- disease_vec |> setdiff(disease)
+  
+  discovery_cohort <- data_igt |>
+    select(-all_of(cols_to_exclude))
+
+  model_res <- lasso_pca(discovery_cohort, disease, cv_sets = 10, grid_size = 30, npcs = 200)
+  
+  return(c(model_res, list("boxplot" = boxplot)))
+})
+
+names(res) <- disease_vec
+```
+
+```{r}
+saveRDS(res, file="results/models/lasso_binary_pcs_80.RData")
+```
+
+```{r}
+res_all <- extract_model_res(res, disease_vec)
+
+features <- res_all$features
+auc <- res_all$auc
+
+saveRDS(features, file="results/models_results/lasso_pcs_80_features.RData")
+saveRDS(auc, file="results/models_results/lasso_pcs_80_auc.RData")
+```
+
 # Analysis of model results
 
 ## Import model results
