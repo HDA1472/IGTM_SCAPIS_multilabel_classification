@@ -128,7 +128,7 @@ glucosemodel$auc |>
 # Number of diseases per patient
 
 ```{r}
-disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
+disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC")
 ```
 
 ```{r, message = FALSE, results = 'hide'}
@@ -216,7 +216,7 @@ pca_res_after$pca_plot + scale_color_brewer(palette = "PuBuGn")
 ```{r}
 ndisease_discovery <- data_igt |> 
   left_join(disease_count, by = "DAid") |>
-  select(-all_of(c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea"))) |> 
+  select(-all_of(c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC"))) |> 
   relocate(n, .after = DAid) |> 
   mutate(n = factor(n),
          n = ifelse(is.na(n), "0", n)) |> 
@@ -262,11 +262,165 @@ res <- lasso_multi(ndisease_discovery_broad, "ndisease", cv_sets = 10, cor_thres
 saveRDS(res, file="results/models/lasso_ndiseaseperpatient_broad_multiclass.RData")
 ```
 
+
+## LASSO Regression
+
+```{r}
+## LASSO
+lasso_reg <- function(join_data,
+                      variable,
+                      seed = 123,
+                      cv_sets = 5,
+                      cor_threshold = 0.9,
+                      grid_size = 10,
+                      subtitle = c("accuracy",
+                                   "sensitivity",
+                                   "specificity",
+                                   "auc",
+                                   "features",
+                                   "top-features"),
+                      palette = disease_palette,
+                      binary_cols = NULL) {
+  Variable <- rlang::sym(variable)
+  
+  # Prepare sets
+  set.seed(seed)
+  data_split <- initial_split(join_data, prop = 0.8, strata = !!Variable)
+  
+  train_set <- training(data_split) |> 
+    mutate(!!Variable := as.numeric(!!Variable))
+  test_set <- testing(data_split) |> 
+    mutate(!!Variable := as.numeric(!!Variable))
+  
+  train_set <- balance_groups(train_set,
+                              variable,
+                              case = 1,
+                              seed)
+  
+  train_folds <- vfold_cv(train_set, v = cv_sets, strata = !!Variable)
+  
+  print("Starting training...")
+  
+  # Train model - hyperparameter optimization
+  formula <- stats::as.formula(paste(variable, "~ ."))
+  
+  recipe <- recipe(formula, data = train_set) |> 
+    update_role(DAid, new_role = "id") |> 
+    step_dummy(all_nominal(), -all_outcomes(), -has_role("id")) |> 
+    step_zv(all_predictors(), -has_role("id")) |> 
+    step_normalize(all_numeric(), -all_outcomes(), -has_role("id"), -all_of(binary_cols)) |> 
+    step_corr(all_numeric(), -all_outcomes(), -has_role("id"), -any_of(binary_cols), threshold = cor_threshold)
+  
+  model <- linear_reg(penalty = tune(), mixture = 1) |>
+    set_engine("glmnet")
+  
+  workflow <- workflow() |> 
+    add_recipe(recipe) |> 
+    add_model(model)
+  
+  grid <- workflow |> 
+    extract_parameter_set_dials() |>
+    grid_space_filling(size = grid_size, type = "latin_hypercube")
+  
+  rmse_res <- metric_set(rmse)
+  
+  ctrl <- control_grid(save_pred = TRUE, parallel_over = "everything", verbose = TRUE)
+  tune <- workflow |>
+    tune_grid(train_folds, grid = grid, control = ctrl, metrics = rmse_res)
+  
+  print("Selecting best model...")
+  
+  # Select best model - Final fit
+  best <- tune |>
+    select_best(metric = "rmse") |>
+    select(-.config)
+  
+  final_wf <- finalize_workflow(workflow, best)
+  
+  final <- final_wf |>
+    fit(train_set)
+  
+  print("Evaluating model...")
+  
+  # Evaluate model
+  splits <- make_splits(train_set, test_set)
+  
+  preds <- last_fit(final_wf, splits, metrics = metric_set(rmse))
+  
+  res <- predict(final, new_data = test_set)
+  
+  res <- bind_cols(res, test_set |> select(!!Variable))
+
+  rmse <- res |> rmse(!!Variable, .pred)
+  rsq <- res |> rsq(!!Variable, .pred)
+  
+  # Feature importance
+  features <- final |>
+    extract_fit_parsnip() |>
+    vi() |>
+    mutate(Importance = abs(Importance),
+           Variable = forcats::fct_reorder(Variable, Importance)) |>
+    arrange(desc(Importance)) |>
+    mutate(Scaled_Importance = scales::rescale(Importance, to = c(0, 100))) |>
+    filter(Scaled_Importance > 0)
+  
+  var_imp_plot <- features |>
+    ggplot(aes(x = Scaled_Importance, y = Variable)) +
+    geom_col(aes(fill = ifelse(Scaled_Importance > 50, variable, NA))) +
+    labs(y = NULL) +
+    scale_x_continuous(breaks = c(0, 100), expand = c(0, 0)) +  # Keep x-axis tick labels at 0 and 100
+    ggtitle(label = 'Number of Diseases Regression',
+            subtitle = paste0('RMSE = ', 
+                              round(rmse$.estimate, 2), 
+                              '    ', 
+                              'R2 = ',
+                              round(rsq$.estimate, 2),
+                              '\n',
+                              'Features = ', 
+                              nrow(features), 
+                              '    ',
+                              'top-features = ',
+                              nrow(features |> dplyr::filter(Scaled_Importance >= 50)))) +
+    xlab('Importance') +
+    ylab('Features') +
+    theme_classic() +
+    theme(legend.position = "none",
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank())
+  
+  scatter_plot <- res |> 
+    mutate(!!Variable := as.factor(!!Variable)) |> 
+    ggplot(aes(x = !!Variable, y = .pred, color = !!Variable)) +
+    geom_point() +
+    geom_abline(intercept = 0, slope = 1, color = "red") +
+    scale_color_brewer(palette = "PuBuGn") +
+    labs(x = "Observed", y = "Predicted") +
+    theme_hpa()
+  
+  return(list("final_wf" = final_wf,
+              "res" = res,
+              "RSE" = rmse$.estimate,
+              "R2" = rsq$.estimate,
+              "features" = features,
+              "var_imp_plot" = var_imp_plot,
+              "scatter_plot" = scatter_plot))
+}
+```
+
+```{r}
+res <- lasso_reg(ndisease_discovery, "ndisease", cv_sets = 10, cor_threshold = 0.9, grid_size = 30)
+```
+
+```{r}
+saveRDS(res, file="results/models/lasso_ndiseaseperpatient_regression.RData")
+```
+
 ## Visualize model results
 
 ```{r}
 ndiseasemodel <- readRDS("results/models/lasso_ndiseaseperpatient_multiclass.RData")
 ndiseasemodel_broad <- readRDS("results/models/lasso_ndiseaseperpatient_broad_multiclass.RData")
+ndiseasemodel_reg <- readRDS("results/models/lasso_ndiseaseperpatient_regression.RData")
 ```
 
 How many patients per disease number?
@@ -284,18 +438,17 @@ Stacked bar chart of the number of diseases per patient. For patients with more 
 
 ```{r}
 class_palette <- c("Healthy" = "lightgrey",
-                   "Obesity" = "#E7662B", 
+                   "Obesity" = "#A6CEE3", 
                    "IGT" = "#836879", 
                    "T2D" = "#321433",
                    "MS" = "#08585A", 
                    "MASLD" = "#FFD321", 
                    "Carotid_plaque" = "#E8A29A", 
-                   "CAC" = "#9E0142", 
-                   "Sleep_apnea" = "#A6CEE3")
+                   "CAC" = "#9E0142")
 
 
 
-disease_columns <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
+disease_columns <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC")
 
 # 1. Separate patients with 0 diseases
 zero_disease_data <- ndisease_discovery |> 
@@ -338,14 +491,13 @@ ggplot(combined_data, aes(x = factor(ndisease), y = weight, fill = Disease)) +
 Upset plot for disease overlap.
 
 ```{r}
-disease_palette <- c("Obesity" = "#E7662B", 
+disease_palette <- c("Obesity" = "#A6CEE3", 
                      "IGT" = "#836879", 
                      "T2D" = "#321433",
                      "MS" = "#08585A", 
                      "MASLD" = "#FFD321", 
                      "Carotid_plaque" = "#E8A29A", 
-                     "CAC" = "#9E0142", 
-                     "Sleep_apnea" = "#A6CEE3")
+                     "CAC" = "#9E0142")
 ```
 
 ```{r}
@@ -408,11 +560,11 @@ cm_table |>
 Boxplots of top-features (\>50% Importance). HbA1c is a typical T2D clinical predictor.
 
 ```{r}
-top_features <- ndiseasemodel$features |> 
+top_features <- ndiseasemodel_broad$features |> 
   filter(Scaled_Importance > 50) |> 
   pull(Variable)
 
-ndisease_discovery |> 
+ndisease_discovery_broad |> 
   select(ndisease, all_of(top_features)) |>
   pivot_longer(cols = -ndisease, names_to = "Protein", values_to = "NPX") |>
   mutate(ndisease = factor(ndisease, levels = c("Low", "Mid", "High")),
@@ -428,7 +580,27 @@ ndisease_discovery |>
 ```
 
 ```{r}
-top_features <- ndiseasemodel_broad$features |> 
+top_features <- ndiseasemodel$features |> 
+  filter(Scaled_Importance > 50) |> 
+  pull(Variable)
+
+ndisease_discovery |> 
+  select(ndisease, all_of(top_features)) |>
+  pivot_longer(cols = -ndisease, names_to = "Protein", values_to = "NPX") |>
+  mutate(ndisease = factor(ndisease, levels = c("0", "1", "2", "3", "4", "5", "6", "7")),
+         Protein = factor(Protein, levels = top_features)) |>
+  ggplot(aes(x = ndisease, y = NPX, fill = ndisease)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "PuBuGn") +
+  facet_wrap(~Protein, scales = "free_y") +
+  labs(x = "Number of diseases", y = "NPX") +
+  theme_hpa() + 
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 0, hjust = 1))
+```
+
+```{r}
+top_features <- ndiseasemodel_reg$features |> 
   filter(Scaled_Importance > 50) |> 
   pull(Variable)
 
