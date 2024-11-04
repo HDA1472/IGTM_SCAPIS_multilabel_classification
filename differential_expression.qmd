@@ -75,6 +75,62 @@ de_all <- bind_rows(de_all)
 
 # Analysis of DE results
 
+## Top proteins boxplots
+
+```{r}
+disease_palette_boxplot <- c("Obesity" = "#A6CEE3", 
+                             "IGT" = "#836879", 
+                             "T2D" = "#321433",
+                             "MS" = "#08585A", 
+                             "MASLD" = "#FFD321", 
+                             "Carotid_plaque" = "#E8A29A", 
+                             "CAC" = "#9E0142",
+                             "Control" = "lightgrey")
+
+top_proteins <- de_all |> 
+  filter(adj.P.Val < 0.05) |> 
+  group_by(Disease) |>
+  arrange(Disease, desc(abs(logFC))) |>
+  slice_head(n = 3) |> 
+  ungroup() |> 
+  rename(Protein = Assay)
+
+top_proteins_vec <- top_proteins |> 
+  pull(Protein)
+
+plot_data <- data_igt |> 
+  select(DAid, all_of(disease_vec), all_of(top_proteins_vec)) |> 
+  pivot_longer(cols = -c(DAid, disease_vec), names_to = "Protein", values_to = "Value") |> 
+  left_join(top_proteins |> select(Protein, Disease), by = "Protein") |> 
+  mutate(Disease_Value = case_when(
+    Disease == "Obesity" ~ Obesity,
+    Disease == "CAC" ~ CAC,
+    Disease == "T2D" ~ T2D,
+    Disease == "MS" ~ MS,
+    Disease == "MASLD" ~ MASLD,
+    Disease == "Carotid_plaque" ~ Carotid_plaque,
+    Disease == "IGT" ~ IGT,
+    TRUE ~ NA_real_
+  )) |> 
+  mutate(Disease_Value = case_when(
+    Disease_Value == 1 ~ Disease,
+    Disease_Value == 0 ~ "Control",
+    TRUE ~ "Control"  # Default case for NA values
+  ))
+
+plot_data |> 
+  ggplot(aes(x = factor(Disease_Value, 
+                        levels = c("Control", unique(Disease[!is.na(Disease_Value)]))), 
+             y = Value, 
+             fill = Disease_Value)) +
+  geom_boxplot(position = position_dodge(0.8), outlier.size = 1.5) +
+  scale_fill_manual(values = disease_palette_boxplot) +
+  facet_wrap(~Protein, scales = "free") +
+  labs(x = "", y = "") +
+  theme_hpa()
+```
+
+## Protein heatmaps
 Top 20 proteins for each disease according to logFC. LogFC > 0.1 and adj.P.val < 0.05.
 
 ```{r}
