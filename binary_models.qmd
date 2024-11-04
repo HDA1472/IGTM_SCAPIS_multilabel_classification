@@ -128,7 +128,7 @@ res <- lapply(disease_vec, function(disease) {
   discovery_cohort <- data_igt |>
     select(-all_of(cols_to_exclude))
 
-  model_res <- rf(discovery_cohort, disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 60)
+  model_res <- rf(discovery_cohort, disease, cv_sets = 5, cor_threshold = 0.9, grid_size = 60)
   boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
   return(c(model_res, list("boxplot" = boxplot)))
 })
@@ -137,7 +137,7 @@ names(res) <- disease_vec
 ```
 
 ```{r}
-saveRDS(res, file="results/models/rf_binary.RData")
+saveRDS(res, file="results/models/rf_binary_1.RData")
 ```
 
 ```{r}
