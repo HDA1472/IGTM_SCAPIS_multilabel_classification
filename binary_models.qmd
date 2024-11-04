@@ -335,33 +335,45 @@ Loop over diseases.
 ```
 
 ```{r}
-res <- lapply(disease_vec, function(disease) {
-  print(paste(disease, "model:"))
-  cols_to_exclude <- disease_vec |> setdiff(disease)
+npcs <- c(100, 120, 140, 160, 180, 200)
+res_pca <- lapply(npcs, function(npc) {
+  print(paste("PCs:", npc))
+  res <- lapply(disease_vec, function(disease) {
+    print(paste(disease, "model:"))
+    cols_to_exclude <- disease_vec |> setdiff(disease)
+    
+    discovery_cohort <- data_igt |>
+      select(-all_of(cols_to_exclude))
   
-  discovery_cohort <- data_igt |>
-    select(-all_of(cols_to_exclude))
-
-  model_res <- lasso_pca(discovery_cohort, disease, cv_sets = 10, grid_size = 30, npcs = 200)
+    model_res <- lasso_pca(discovery_cohort, disease, cv_sets = 10, grid_size = 30, npcs = npc)
+    
+    return(c(model_res, list("boxplot" = boxplot)))
+  })
   
-  return(c(model_res, list("boxplot" = boxplot)))
+  names(res) <- disease_vec
+  
+  res_all <- extract_model_res(res, disease_vec)
+  
+  features <- res_all$features
+  auc <- res_all$auc
+  
+  return(auc)
 })
-
-names(res) <- disease_vec
 ```
 
 ```{r}
-saveRDS(res, file="results/models/lasso_binary_pcs_80.RData")
-```
+names(res_pca) <- npcs
 
-```{r}
-res_all <- extract_model_res(res, disease_vec)
+extract_model_pca_res <- function(model, npcs) {
+  auc_all <- lapply(npcs, function(npc) {
+    auc <- model[[as.character(npc)]] |> mutate(nPC = npc)
+  })
+  return(bind_rows(auc_all))
+}
 
-features <- res_all$features
-auc <- res_all$auc
+res_pca_all <- extract_model_pca_res(res_pca, npcs)
 
-saveRDS(features, file="results/models_results/lasso_pcs_80_features.RData")
-saveRDS(auc, file="results/models_results/lasso_pcs_80_auc.RData")
+saveRDS(res_pca_all, file="results/models_results/lasso_pcs_100_200_auc.RData")
 ```
 
 # Analysis of model results
@@ -377,6 +389,61 @@ lasso_onlyclinical_features <- readRDS("results/models_results/lasso_onlyclinica
 lasso_onlyclinical_auc <- readRDS("results/models_results/lasso_onlyclinical_auc.RData")
 lasso_diseases_features <- readRDS("results/models_results/lasso_diseases_features.RData")
 lasso_diseases_onlyproteins_features <- readRDS("results/models_results/lasso_diseases_onlyproteins_features.RData")
+```
+
+## Top proteins boxplots
+
+```{r}
+disease_palette_boxplot <- c("Obesity" = "#A6CEE3", 
+                             "IGT" = "#836879", 
+                             "T2D" = "#321433",
+                             "MS" = "#08585A", 
+                             "MASLD" = "#FFD321", 
+                             "Carotid_plaque" = "#E8A29A", 
+                             "CAC" = "#9E0142",
+                             "Control" = "lightgrey")
+
+top_proteins <- lasso_onlyproteins_features |> 
+  group_by(Disease) |>
+  arrange(Disease, desc(Scaled_Importance)) |>
+  slice_head(n = 3) |> 
+  ungroup() |> 
+  filter(Scaled_Importance > 50) |> 
+  rename(Protein = Variable)
+
+top_proteins_vec <- top_proteins |> 
+  pull(Protein)
+
+plot_data <- data_igt |> 
+  select(DAid, all_of(disease_vec), all_of(top_proteins_vec)) |> 
+  pivot_longer(cols = -c(DAid, disease_vec), names_to = "Protein", values_to = "Value") |> 
+  left_join(top_proteins |> select(Protein, Disease), by = "Protein") |> 
+  mutate(Disease_Value = case_when(
+    Disease == "Obesity" ~ Obesity,
+    Disease == "CAC" ~ CAC,
+    Disease == "T2D" ~ T2D,
+    Disease == "MS" ~ MS,
+    Disease == "MASLD" ~ MASLD,
+    Disease == "Carotid_plaque" ~ Carotid_plaque,
+    Disease == "IGT" ~ IGT,
+    TRUE ~ NA_real_
+  )) |> 
+  mutate(Disease_Value = case_when(
+    Disease_Value == 1 ~ Disease,
+    Disease_Value == 0 ~ "Control",
+    TRUE ~ "Control"  # Default case for NA values
+  ))
+
+plot_data |> 
+  ggplot(aes(x = factor(Disease_Value, 
+                        levels = c("Control", unique(Disease[!is.na(Disease_Value)]))), 
+             y = Value, 
+             fill = Disease_Value)) +
+  geom_boxplot(position = position_dodge(0.8), outlier.size = 1.5) +
+  scale_fill_manual(values = disease_palette_boxplot) +
+  facet_wrap(~Protein, scales = "free") +
+  labs(x = "", y = "") +
+  theme_hpa()
 ```
 
 ## Proteomics + clinical vs. only proteomics + clinical
@@ -563,8 +630,8 @@ lasso_onlyclinical_features |>
 ```{r}
 importance_score <- 50
 
-features_per_model <- lasso_diseases_onlyproteins_features |> 
-  filter(Scaled_Importance >= importance_score) |>
+features_per_model <- lasso_diseases_features |> 
+  filter(Scaled_Importance > importance_score) |>
   group_by(Disease) |> 
   summarise(Features = list(unique(Variable))) |> 
   deframe()
@@ -592,7 +659,7 @@ shared_features_df <- map_dfr(shared_features_matrix, ~ as_tibble(.))
 # Convert SharedFeatures column to numeric
 shared_features_matrix$SharedFeatures <- as.numeric(shared_features_matrix$SharedFeatures)
 
-node_sizes <- lasso_diseases_onlyproteins_features |> 
+node_sizes <- lasso_diseases_features |> 
   filter(Scaled_Importance >= importance_score) |>
   group_by(Disease) |> 
   summarise(TotalFeatures = n())
@@ -630,3 +697,21 @@ ggraph(graph, layout = "fr") +
 
 ```
 
+## PCA analysis
+
+```{r}
+lasso_pca_auc <- readRDS("results/models_results/lasso_pcs_20_200_auc.RData")
+lasso_auc <- readRDS("results/models_results/lasso_auc.RData")
+```
+
+```{r}
+lasso_pca_auc |> 
+  ggplot(aes(x = nPC, y = AUC, color = Disease)) +
+  geom_line() +
+  geom_point() +
+  geom_hline(data = lasso_auc, aes(yintercept = AUC), linetype = "dashed") +
+  scale_color_manual(values = disease_palette) +
+  labs(x = "Number of PCs", y = "AUC") +
+  facet_wrap(~Disease) +
+  theme_hpa()
+```
