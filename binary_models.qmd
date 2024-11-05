@@ -406,7 +406,7 @@ disease_palette_boxplot <- c("Obesity" = "#A6CEE3",
 top_proteins <- lasso_onlyproteins_features |> 
   group_by(Disease) |>
   arrange(Disease, desc(Scaled_Importance)) |>
-  slice_head(n = 3) |> 
+  slice_head(n = 1) |> 
   ungroup() |> 
   filter(Scaled_Importance > 50) |> 
   rename(Protein = Variable)

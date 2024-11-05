@@ -73,6 +73,14 @@ de_all <- lapply(disease_vec, function(disease) {
 de_all <- bind_rows(de_all)
 ```
 
+```{r}
+volcanos_all <- lapply(disease_vec, function(disease) {
+    de_res <- res[[disease]]$volcano_plot
+  })
+
+names(volcanos_all) <- disease_vec
+```
+
 # Analysis of DE results
 
 ## Top proteins boxplots
@@ -91,7 +99,7 @@ top_proteins <- de_all |>
   filter(adj.P.Val < 0.05) |> 
   group_by(Disease) |>
   arrange(Disease, desc(abs(logFC))) |>
-  slice_head(n = 3) |> 
+  slice_head(n = 1) |> 
   ungroup() |> 
   rename(Protein = Assay)
 
@@ -109,14 +117,14 @@ plot_data <- data_igt |>
     Disease == "MS" ~ MS,
     Disease == "MASLD" ~ MASLD,
     Disease == "Carotid_plaque" ~ Carotid_plaque,
-    Disease == "IGT" ~ IGT,
+    #Disease == "IGT" ~ IGT,
     TRUE ~ NA_real_
   )) |> 
   mutate(Disease_Value = case_when(
     Disease_Value == 1 ~ Disease,
     Disease_Value == 0 ~ "Control",
     TRUE ~ "Control"  # Default case for NA values
-  ))
+  )) #|> mutate(Protein_disease = paste(Protein, Disease, sep = "_"))
 
 plot_data |> 
   ggplot(aes(x = factor(Disease_Value, 
