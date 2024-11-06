@@ -8,6 +8,8 @@ editor: source
 library(HDAnalyzeR)
 library(tidyverse)
 library(tidyheatmaps)
+library(forcats)
+library(patchwork)
 ```
 
 # Import data & metadata
@@ -38,8 +40,10 @@ disease_palette <- c("Obesity" = "#A6CEE3",
 metadata_cols <- c("Sex", "Age", "Smoke_status", "MAP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT")
 ```
 
+## IGT
+
 ```{r}
-res <- lapply(disease_vec, function(disease) {
+res_igt <- lapply(disease_vec, function(disease) {
   print(paste(disease, "Case:"))
   
   discovery_cohort <- data_igt |>
@@ -63,22 +67,67 @@ res <- lapply(disease_vec, function(disease) {
                      logfc_lim = 0)
 })
 
-names(res) <- disease_vec
+names(res_igt) <- disease_vec
 ```
 
 ```{r}
-de_all <- lapply(disease_vec, function(disease) {
-    de_res <- res[[disease]]$de_results |> mutate(Disease = disease)
+de_all_igt <- lapply(disease_vec, function(disease) {
+    de_res <- res_igt[[disease]]$de_results |> mutate(Disease = disease)
   })
-de_all <- bind_rows(de_all)
+de_all_igt <- bind_rows(de_all_igt)
 ```
 
 ```{r}
-volcanos_all <- lapply(disease_vec, function(disease) {
-    de_res <- res[[disease]]$volcano_plot
+volcanos_all_igt <- lapply(disease_vec, function(disease) {
+    de_res <- res_igt[[disease]]$volcano_plot
   })
 
-names(volcanos_all) <- disease_vec
+names(volcanos_all_igt) <- disease_vec
+```
+
+## SCAPIS
+
+```{r}
+res_scapis <- lapply(disease_vec, function(disease) {
+  print(paste(disease, "Case:"))
+  
+  discovery_cohort <- data_scapis |>
+    select(-all_of(disease_vec)) |> 
+    select(-any_of(metadata_cols))
+  
+  if (disease == "Obesity") {
+    correct <- c("Age", "Sex")
+    correct_type <- c("numeric", "factor")
+  } else {
+    correct <- c("Age", "Sex", "BMI")
+    correct_type <- c("numeric", "factor", "numeric")
+  }
+  de_res <- do_limma(discovery_cohort, 
+                     metadata |> rename(Disease = disease), 
+                     "Disease", 
+                     case = 1, 
+                     control = 0,
+                     correct = correct,
+                     correct_type = correct_type,
+                     logfc_lim = 0)
+})
+
+names(res_scapis) <- disease_vec
+```
+
+```{r}
+de_all_scapis <- lapply(disease_vec, function(disease) {
+    de_res <- res_scapis[[disease]]$de_results |> mutate(Disease = disease)
+  })
+de_all_scapis <- bind_rows(de_all_scapis)
+```
+
+```{r}
+volcanos_all_scapis <- lapply(disease_vec, function(disease) {
+    de_res <- res_scapis[[disease]]$volcano_plot
+  })
+
+names(volcanos_all_scapis) <- disease_vec
 ```
 
 # Analysis of DE results
@@ -93,13 +142,14 @@ disease_palette_boxplot <- c("Obesity" = "#A6CEE3",
                              "MASLD" = "#FFD321", 
                              "Carotid_plaque" = "#E8A29A", 
                              "CAC" = "#9E0142",
-                             "Control" = "lightgrey")
+                             "Other Disease" = "lightgrey",
+                             "Healthy" = "lightgrey")
 
-top_proteins <- de_all |> 
+top_proteins <- de_all_igt |> 
   filter(adj.P.Val < 0.05) |> 
   group_by(Disease) |>
-  arrange(Disease, desc(abs(logFC))) |>
-  slice_head(n = 1) |> 
+  arrange(Disease, desc(logFC)) |>
+  slice_head(n = 3) |> 
   ungroup() |> 
   rename(Protein = Assay)
 
@@ -109,7 +159,9 @@ top_proteins_vec <- top_proteins |>
 plot_data <- data_igt |> 
   select(DAid, all_of(disease_vec), all_of(top_proteins_vec)) |> 
   pivot_longer(cols = -c(DAid, disease_vec), names_to = "Protein", values_to = "Value") |> 
-  left_join(top_proteins |> select(Protein, Disease), by = "Protein") |> 
+  left_join(top_proteins |> select(Protein, Disease) |> unique(), 
+            by = "Protein", 
+            relationship = "many-to-many") |> 
   mutate(Disease_Value = case_when(
     Disease == "Obesity" ~ Obesity,
     Disease == "CAC" ~ CAC,
@@ -117,25 +169,32 @@ plot_data <- data_igt |>
     Disease == "MS" ~ MS,
     Disease == "MASLD" ~ MASLD,
     Disease == "Carotid_plaque" ~ Carotid_plaque,
-    #Disease == "IGT" ~ IGT,
+    Disease == "IGT" ~ IGT,
     TRUE ~ NA_real_
   )) |> 
+  mutate(Any_disease = Obesity + CAC + T2D + MS + MASLD + Carotid_plaque + IGT) |> 
   mutate(Disease_Value = case_when(
     Disease_Value == 1 ~ Disease,
-    Disease_Value == 0 ~ "Control",
+    Any_disease == 0 ~ "Healthy",
+    Disease_Value == 0 ~ "Other Disease",
     TRUE ~ "Control"  # Default case for NA values
-  )) #|> mutate(Protein_disease = paste(Protein, Disease, sep = "_"))
+  )) |> 
+  mutate(Disease_protein = paste(Disease, Protein, sep = "_"))
 
 plot_data |> 
   ggplot(aes(x = factor(Disease_Value, 
-                        levels = c("Control", unique(Disease[!is.na(Disease_Value)]))), 
+                        levels = c("Healthy", 
+                                   "Other Disease", 
+                                   unique(Disease[!is.na(Disease_Value)]))), 
              y = Value, 
              fill = Disease_Value)) +
   geom_boxplot(position = position_dodge(0.8), outlier.size = 1.5) +
   scale_fill_manual(values = disease_palette_boxplot) +
-  facet_wrap(~Protein, scales = "free") +
+  facet_wrap(~Disease_protein, scales = "free") +
   labs(x = "", y = "") +
-  theme_hpa()
+  theme_hpa() + 
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 ## Protein heatmaps
@@ -300,3 +359,218 @@ de_all |>
     clustering_method = "ward.D2"
   )
 ```
+
+## Validation analysis
+
+```{r}
+upreg_proteins_igt <- de_all_igt |> 
+  select(Assay, Disease, logFC, adj.P.Val) |> 
+  filter(logFC > 0, adj.P.Val < 0.05) |>
+  arrange(desc(logFC)) |> 
+  group_by(Disease) |>
+  top_n(10, logFC) |>
+  ungroup()
+```
+
+```{r}
+plots <- list()
+
+for (i in seq_along(disease_vec)) {
+  disease <- disease_vec[i]
+  
+  p <- upreg_proteins_igt |> 
+    filter(Disease == disease) |> 
+    ggplot(aes(x = logFC, y = fct_reorder(Assay, logFC), color = Disease)) +
+    geom_segment(aes(x = 0, xend = logFC, y = Assay, yend = Assay)) +
+    geom_point(size = 4) +
+    geom_vline(xintercept = 0.1, linetype = "dashed", color = "black") +
+    scale_color_manual(values = disease_palette) +
+    theme_hpa() +
+    theme(legend.position = "none", plot.margin = margin(2, 0, 2, 0)) +
+    xlim(0, 1.5) +
+    labs(y = element_blank(), title = disease) +
+    theme(axis.title.y = element_blank(), 
+          axis.text.y = element_blank(), 
+          axis.ticks.y = element_blank())
+  
+  # Remove x-axis and x-axis label for all but the last plot
+  if (i < length(disease_vec)) {
+    p <- p + theme(axis.line.x = element_blank(), 
+                   axis.title.x = element_blank(), 
+                   axis.text.x = element_blank(), 
+                   axis.ticks.x = element_blank())
+  } else {
+    p <- p + labs(x = "logFC")
+  }
+  
+  plots[[i]] <- p
+}
+
+combined_plot_igt <- wrap_plots(plots, ncol = 1) + 
+  plot_annotation(title = 'IGT') &
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+combined_plot_igt
+```
+
+```{r}
+plots <- list()
+
+for (i in seq_along(disease_vec)) {
+  disease <- disease_vec[i]
+  
+  p <- upreg_proteins_igt |> 
+    left_join(de_all_scapis |> select(Assay, Disease, logFC, adj.P.Val), 
+              by = c("Assay", "Disease")) |>
+    filter(Disease == disease) |> 
+    ggplot(aes(x = logFC.y, y = fct_reorder(Assay, logFC.x), color = Disease)) +
+    geom_segment(aes(x = 0, xend = logFC.y, y = Assay, yend = Assay)) +
+    geom_point(size = 4) +
+    geom_vline(xintercept = 0.1, linetype = "dashed", color = "black") +
+    scale_color_manual(values = disease_palette) +
+    theme_hpa() +
+    theme(legend.position = "none", plot.margin = margin(2, 0, 2, 0)) +
+    xlim(0, 1.5) +
+    labs(y = element_blank(), title = disease) +
+    theme(axis.title.y = element_blank(), 
+          axis.text.y = element_blank(), 
+          axis.ticks.y = element_blank())
+  
+  # Remove x-axis and x-axis label for all but the last plot
+  if (i < length(disease_vec)) {
+    p <- p + theme(axis.line.x = element_blank(), 
+                   axis.title.x = element_blank(), 
+                   axis.text.x = element_blank(), 
+                   axis.ticks.x = element_blank())
+  } else {
+    p <- p + labs(x = "logFC")
+  }
+  
+  plots[[i]] <- p
+}
+
+combined_plot_scapis <- wrap_plots(plots, ncol = 1) + 
+  plot_annotation(title = 'SCAPIS') &
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+combined_plot_scapis
+```
+
+```{r}
+lasso_onlyproteins_features <- readRDS("results/models_results/lasso_onlyproteins_features.RData")
+plots <- list()
+
+for (i in seq_along(disease_vec)) {
+  disease <- disease_vec[i]
+  
+  p <- upreg_proteins_igt |> 
+    left_join(lasso_onlyproteins_features |> 
+                rename(Assay = Variable) |> 
+                mutate(Scaled_Importance = case_when(
+                  Sign == "POS" ~ Scaled_Importance,
+                  Sign == "NEG" ~ -Scaled_Importance,
+                  TRUE ~ 0
+                )) |> 
+                select(Assay, Disease, Scaled_Importance), 
+              by = c("Assay", "Disease")) |>
+    filter(Disease == disease) |> 
+    ggplot(aes(x = Scaled_Importance, y = fct_reorder(Assay, logFC), fill = Disease)) +
+    geom_col() +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    scale_fill_manual(values = disease_palette) +
+    theme_hpa() +
+    theme(legend.position = "none", plot.margin = margin(2, 0, 2, 0)) +
+    xlim(-100, 100) +
+    labs(y = element_blank(), title = disease)
+  
+  # Remove x-axis and x-axis label for all but the last plot
+  if (i < length(disease_vec)) {
+    p <- p + theme(axis.line.x = element_blank(), 
+                   axis.title.x = element_blank(), 
+                   axis.text.x = element_blank(), 
+                   axis.ticks.x = element_blank())
+  } else {
+    p <- p + labs(x = "Protein Importance (%)")
+  }
+  
+  plots[[i]] <- p
+}
+
+combined_plot_ml <- wrap_plots(plots, ncol = 1) + 
+  plot_annotation(title = 'LASSO trained on IGT') &
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+combined_plot_ml
+```
+
+```{r}
+plots <- list()
+
+for (i in seq_along(disease_vec)) {
+  disease <- disease_vec[i]
+  
+  p <- upreg_proteins_igt |> 
+    left_join(de_all_scapis |> select(Assay, Disease, logFC, adj.P.Val), 
+              by = c("Assay", "Disease")) |>
+    filter(Disease == disease) |> 
+    mutate(Validate = ifelse(logFC.y > 0.1 & logFC.x > 0.1, 1, 0)) |>
+    mutate(Validate = as.factor(Validate)) |> 
+    ggplot(aes(x = "0", y = fct_reorder(Assay, logFC.x), fill = Validate)) +
+    geom_point(shape=22, size = 4) +
+    scale_fill_manual(values = c("1" = "green", "0" = "red")) +
+    scale_x_discrete(breaks=c("0"), labels=c("YES/NO")) + 
+    theme_hpa() +
+    theme(legend.position = "none", plot.margin = margin(2, 0, 2, 0)) +
+    labs(y = element_blank(), title = disease) +
+    theme(axis.line.y = element_blank(), 
+          axis.title.y = element_blank(), 
+          axis.text.y = element_blank(), 
+          axis.ticks.y = element_blank())
+  
+  # Remove x-axis and x-axis label for all but the last plot
+  if (i < length(disease_vec)) {
+    p <- p + theme(axis.line.x = element_blank(),
+                   axis.title.x = element_blank(),
+                   axis.text.x = element_blank(),
+                   axis.ticks.x = element_blank())
+  } else {
+    p <- p + labs(x = "")
+  }
+  
+  plots[[i]] <- p
+}
+
+combined_plot_validate <- wrap_plots(plots, ncol = 1) + 
+  plot_annotation(title = 'Validation') &
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+combined_plot_validate
+```
+
+```{r}
+# rm(combined_plot_ml)
+# rm(combined_plot_igt)
+# rm(combined_plot_scapis)
+# rm(combined_plot_validate)
+# rm(final_plot)
+```
+
+```{r, warnings = FALSE}
+combined_plot_ml <- wrap_elements(full = combined_plot_ml) +
+  plot_annotation(title = "LASSO trained on IGT") &
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+combined_plot_igt <- wrap_elements(full = combined_plot_igt) +
+  plot_annotation(title = "IGT Cohort") &
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+combined_plot_scapis <- wrap_elements(full = combined_plot_scapis) +
+  plot_annotation(title = "SCAPIS Cohort") &
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+combined_plot_validate <- wrap_elements(full = combined_plot_validate) +
+  plot_annotation(title = "Validation") &
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+# Combine the wrapped plots side-by-side
+final_plot <- (combined_plot_ml | combined_plot_igt | combined_plot_scapis | combined_plot_validate) +
+  plot_layout(widths = c(4, 3, 3, 1))
+final_plot
+```
+
