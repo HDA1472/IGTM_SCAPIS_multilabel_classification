@@ -191,7 +191,7 @@ plot_data |>
              fill = Disease_Value)) +
   geom_boxplot(position = position_dodge(0.8), outlier.size = 1.5) +
   scale_fill_manual(values = disease_palette_boxplot) +
-  facet_wrap(~Disease_protein, scales = "free") +
+  facet_wrap(~Disease_protein, scales = "free", nrow = 3) +
   labs(x = "", y = "") +
   theme_hpa() + 
   theme(legend.position = "none",
