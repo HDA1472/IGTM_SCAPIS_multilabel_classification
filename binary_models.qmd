@@ -82,6 +82,41 @@ saveRDS(features, file="results/models_results/lasso_features.RData")
 saveRDS(auc, file="results/models_results/lasso_auc.RData")
 ```
 
+### Validate on SCAPIS
+
+```{r}
+lasso_binary <- readRDS("results/models/lasso_binary.RData")
+```
+
+```{r}
+res <- lapply(disease_vec, function(disease) {
+  print(paste(disease, "model:"))
+  cols_to_exclude <- disease_vec |> setdiff(disease)
+  
+  discovery_cohort <- data_igt |>
+    select(-all_of(cols_to_exclude))
+  
+  validation_cohort <- data_scapis |>
+    select(-all_of(cols_to_exclude)) |> 
+    select(all_of(names(discovery_cohort)))
+  
+  model_res <- validate_model(lasso_binary[[disease]]$final_wf, discovery_cohort, validation_cohort, disease, disease_palette)
+  
+  return(model_res)
+})
+
+names(res) <- disease_vec
+```
+
+```{r}
+auc_all <- lapply(disease_vec, function(disease) {
+    auc <- res[[disease]]$auc |> as_tibble() |> rename(AUC = value) |> mutate(Disease = disease)
+  })
+
+auc_all <- bind_rows(auc_all)
+saveRDS(auc_all, file="results/models_results/lasso_validate_auc.RData")
+```
+
 ## Elastic Net
 
 Loop over diseases.
@@ -444,6 +479,24 @@ plot_data |>
   facet_wrap(~Protein, scales = "free") +
   labs(x = "", y = "") +
   theme_hpa()
+```
+
+## Proteomics + clinical - discovery vs validation
+
+```{r}
+auc_discovery <- readRDS("results/models_results/lasso_auc.RData")
+auc_validation <- readRDS("results/models_results/lasso_validate_auc.RData")
+auc_all <- bind_rows(auc_discovery |> mutate(Set = "Discovery"), 
+                     auc_validation |> mutate(Set = "Validation"))
+
+auc_all |>
+  ggplot(aes(x = Disease, y = AUC, fill = Set)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = round(AUC, 2)), position = position_dodge(width = 1), vjust = -0.5) +
+  scale_fill_manual(values = c("Discovery" = "purple1", "Validation" = "pink")) +
+  labs(y = "AUC") +
+  theme_hpa() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 ## Proteomics + clinical vs. only proteomics + clinical

@@ -902,3 +902,63 @@ lasso_multi <- function(join_data,
               "features" = features,
               "var_imp_plot" = var_imp_plot))
 }
+
+
+## validate
+validate_model <- function(final_wf,
+                           train_set,
+                           test_set,
+                           variable,
+                           palette,
+                           seed = 123,
+                           binary_cols = NULL) {
+  Variable <- rlang::sym(variable)
+  
+  # Prepare sets
+  set.seed(seed)
+  
+  train_set <- train_set |> 
+    mutate(!!Variable := as.factor(!!Variable))
+  test_set <- test_set |> 
+    mutate(!!Variable := as.factor(!!Variable))
+  
+  train_set <- balance_groups(train_set,
+                              variable,
+                              case = 1,
+                              seed)
+  
+  print("Evaluating model...")
+  
+  # Evaluate model
+  final <- final_wf |>
+    fit(train_set)
+  
+  splits <- make_splits(train_set, test_set)
+  
+  preds <- last_fit(final_wf, splits, metrics = metric_set(roc_auc))
+  
+  res <- predict(final, new_data = test_set)
+  
+  res <- bind_cols(res, test_set |> select(!!Variable))
+  
+  accuracy <- res |> accuracy(!!Variable, .pred_class)
+  sensitivity <- res |> sensitivity(!!Variable, .pred_class, event_level = "second")
+  specificity <- res |> specificity(!!Variable, .pred_class, event_level = "second")
+  auc <- preds |> collect_metrics()
+  cm <- res |> conf_mat(!!Variable, .pred_class)
+  roc <- preds |>
+    collect_predictions(summarize = F) |>
+    roc_curve(truth = !!Variable, .pred_0) |>
+    ggplot(aes(x = 1 - specificity, y = sensitivity)) +
+    geom_path(colour = palette[variable], linewidth = 2) +
+    geom_abline(lty = 3) +
+    coord_equal() +
+    theme_hpa()
+  
+  return(list("accuracy" = accuracy$.estimate,
+              "sensitivity" = sensitivity$.estimate,
+              "specificity" = specificity$.estimate,
+              "auc" = auc$.estimate,
+              "confusion_matrix" = cm,
+              "roc_curve" = roc))
+}
