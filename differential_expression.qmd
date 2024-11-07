@@ -10,6 +10,7 @@ library(tidyverse)
 library(tidyheatmaps)
 library(forcats)
 library(patchwork)
+library(fmsb)
 ```
 
 # Import data & metadata
@@ -142,8 +143,8 @@ disease_palette_boxplot <- c("Obesity" = "#A6CEE3",
                              "MASLD" = "#FFD321", 
                              "Carotid_plaque" = "#E8A29A", 
                              "CAC" = "#9E0142",
-                             "Other Disease" = "lightgrey",
-                             "Healthy" = "lightgrey")
+                             "Other Disease" = "grey70",
+                             "Healthy" = "grey90")
 
 top_proteins <- de_all_igt |> 
   filter(adj.P.Val < 0.05) |> 
@@ -197,7 +198,102 @@ plot_data |>
         axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
+## Top-proteins radar plots
+
+```{r}
+disease_palette_boxplot <- c("Obesity" = "#A6CEE3", 
+                             "IGT" = "#836879", 
+                             "T2D" = "#321433",
+                             "MS" = "#08585A", 
+                             "MASLD" = "#FFD321", 
+                             "Carotid_plaque" = "#E8A29A", 
+                             "CAC" = "#9E0142",
+                             "Other Disease" = "grey70",
+                             "Healthy" = "grey90")
+
+top_proteins <- de_all_igt |> 
+  filter(adj.P.Val < 0.05) |> 
+  group_by(Disease) |>
+  arrange(Disease, desc(logFC)) |>
+  slice_head(n = 8) |> 
+  ungroup() |> 
+  rename(Protein = Assay)
+
+top_proteins_vec <- top_proteins |> 
+  pull(Protein)
+
+radar_data <- data_igt |> 
+  select(DAid, all_of(disease_vec), all_of(top_proteins_vec)) |> 
+  pivot_longer(cols = -c(DAid, disease_vec), names_to = "Protein", values_to = "Value") |> 
+  left_join(top_proteins |> select(Protein, Disease) |> unique(), 
+            by = "Protein", 
+            relationship = "many-to-many") |> 
+  mutate(Disease_Value = case_when(
+    Disease == "Obesity" ~ Obesity,
+    Disease == "CAC" ~ CAC,
+    Disease == "T2D" ~ T2D,
+    Disease == "MS" ~ MS,
+    Disease == "MASLD" ~ MASLD,
+    Disease == "Carotid_plaque" ~ Carotid_plaque,
+    Disease == "IGT" ~ IGT,
+    TRUE ~ NA_real_
+  )) |> 
+  mutate(Any_disease = Obesity + CAC + T2D + MS + MASLD + Carotid_plaque + IGT) |> 
+  mutate(Disease_Value = case_when(
+    Disease_Value == 1 ~ Disease,
+    Any_disease == 0 ~ "Healthy",
+    Disease_Value == 0 ~ "Other Disease",
+    TRUE ~ "Control"  # Default case for NA values
+  )) |> 
+  group_by(Disease, Disease_Value, Protein) |>
+  summarise(Value = mean(Value), .groups = "drop")
+
+
+for (i in seq_along(disease_vec)) {
+  disease <- disease_vec[i]
+  
+  radar_dat <- radar_data |> 
+    filter(Disease == disease) |> 
+    select(-Disease) |>
+    pivot_wider(names_from = Protein, values_from = Value) |>
+    column_to_rownames(var = "Disease_Value")
+  
+  # min_row <- radar_dat |> summarise(across(everything(), min))
+  # max_row <- radar_dat |> summarise(across(everything(), max))
+  overall_min <- floor(min(as.matrix(radar_dat), na.rm = TRUE))
+  overall_max <- ceiling(max(as.matrix(radar_dat), na.rm = TRUE))
+  min_row <- as.data.frame(matrix(overall_min, nrow = 1, ncol = ncol(radar_dat)))
+  max_row <- as.data.frame(matrix(overall_max, nrow = 1, ncol = ncol(radar_dat)))
+  colnames(min_row) <- colnames(radar_dat)
+  colnames(max_row) <- colnames(radar_dat)
+  
+  radar_dat <- bind_rows(max_row, min_row, radar_dat)
+  rownames(radar_dat)[1:2] <- c("1", "2")
+  radar_dat <- radar_dat |> slice(match(c("1", "2", disease, "Other Disease", "Healthy"), rownames(radar_dat)))
+  color_order <- disease_palette_boxplot[c(disease, "Other Disease", "Healthy")]
+  colors_alpha <- sapply(color_order, alpha, alpha = 0.5)
+  
+  plot_filename <- paste0("results/plots/radar_plot_", disease, ".png")
+  png(plot_filename, width = 600, height = 600)
+  radarchart(radar_dat, 
+             axistype=1,
+             pcol=color_order, 
+             pfcol=colors_alpha, 
+             plwd=4, 
+             plty=1,
+             cglcol="grey", 
+             cglty=1, 
+             axislabcol="black", 
+             caxislabels=seq(overall_min, overall_max, 0.5), 
+             cglwd=0.8,
+             vlcex=0.8)
+  
+  dev.off()
+}
+```
+
 ## Protein heatmaps
+
 Top 20 proteins for each disease according to logFC. LogFC > 0.1 and adj.P.val < 0.05.
 
 ```{r}
