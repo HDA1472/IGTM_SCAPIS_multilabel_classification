@@ -22,6 +22,7 @@ long_data <- import_df("data/raw_data/IGT_SCAPIS_preprocessed_data.tsv")
 metadata <- import_df("data/raw_data/IGTM_SCAPIS_metadata_230406.txt")
 metadata_scapis <- import_df("data/raw_data/scapis_metadata_manifest.xlsx")
 metadata_igt <- import_df("data/raw_data/igts_metadata_manifest.xlsx")
+cac_100 <- import_df("data/raw_data/cac_100.csv")
 ```
 
 # Data preprocessing
@@ -74,7 +75,9 @@ Check different values in specified metadata columns. For the missing values we 
 
 ```{r}
 metadata |> 
-  select(all_of(c("glucose.group", "carotidplaque", "CAC", "NAFLD", "MetS_NCEP", "cqhe058"))) |> 
+  left_join(cac_100, by = "DAid") |>
+  mutate(CAC_100 = as.character(CAC_100)) |> 
+  select(all_of(c("glucose.group", "carotidplaque", "CAC_100", "NAFLD", "MetS_NCEP", "cqhe058"))) |> 
   pivot_longer(everything(), names_to = "Variable", values_to = "Value") |> 
   group_by(Variable, Value) |> 
   summarise(Count = n(), .groups = 'drop') |> 
@@ -93,9 +96,11 @@ Check for NA overlap.
 
 ```{r}
 metadata |> 
+  left_join(cac_100, by = "DAid") |>
+  mutate(CAC_100 = as.character(CAC_100)) |> 
   rowwise() |> 
   mutate(carotidplaque = if_else(carotidplaque == "NOT_APPLICABLE", NA, carotidplaque)) |> 
-  mutate(NA_count = sum(is.na(across(all_of(c("CAC", "carotidplaque", "NAFLD", "MetS_NCEP", "glucose.group", "cqhe058")))))) |> 
+  mutate(NA_count = sum(is.na(across(all_of(c("CAC_100", "carotidplaque", "NAFLD", "MetS_NCEP", "glucose.group", "cqhe058")))))) |> 
   ungroup() |> 
   filter(NA_count > 0) |> 
   select(DAid, NA_count) |> 
@@ -118,6 +123,9 @@ Rename and modify the metadata columns.
 
 ```{r}
 metadata_preprocessed <- metadata |> 
+  left_join(cac_100, by = "DAid") |>
+  mutate(CAC_100 = as.character(CAC_100)) |> 
+  select(-CAC) |> 
   rename(Age = AgeAtVisitOne, 
          Sex = Gender,
          Carotid_plaque = carotidplaque,
@@ -133,7 +141,8 @@ metadata_preprocessed <- metadata |>
          Sleep_apnea = cqhe058,
          Celiac_disease = cqhe063,
          Crohn = cqhe066,
-         Rheumatic_disease = cqhe069) |> 
+         Rheumatic_disease = cqhe069,
+         CAC = CAC_100) |> 
   mutate(Age = Age |> as.numeric() |> floor()) |> 
   mutate(Sex = if_else(Sex == "MALE", "M", "F")) |> 
   mutate(Carotid_plaque = if_else(Carotid_plaque == "NOT_APPLICABLE", NA, Carotid_plaque)) |> 
@@ -145,7 +154,7 @@ metadata_preprocessed <- metadata |>
          Carotid_plaque = if_else(Carotid_plaque %in% c("NO_PLAQUE"), 0, 1),
          MS = if_else(MS == "YES", 1, 0),
          MASLD = if_else(MASLD == "YES", 1, 0),
-         CAC = if_else(CAC == "YES", 1, 0),
+         CAC = if_else(CAC == "1", 1, 0),
          Myocardial_infarction = if_else(Myocardial_infarction == "YES", 1, 0),
          Atrial_fibrillation = if_else(Atrial_fibrillation == "YES", 1, 0),
          Coronary_artery_intervention = if_else(Coronary_artery_intervention == "YES", 1, 0),
