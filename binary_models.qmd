@@ -69,7 +69,7 @@ names(res) <- disease_vec
 ```
 
 ```{r}
-saveRDS(res, file="results/models/lasso_binary.RData")
+saveRDS(res, file="results/models_cac100/lasso_binary.RData")
 ```
 
 ```{r}
@@ -78,14 +78,14 @@ res_all <- extract_model_res(res, disease_vec)
 features <- res_all$features
 auc <- res_all$auc
 
-saveRDS(features, file="results/models_results/lasso_features.RData")
-saveRDS(auc, file="results/models_results/lasso_auc.RData")
+saveRDS(features, file="results/models_results_cac100/lasso_features.RData")
+saveRDS(auc, file="results/models_results_cac100/lasso_auc.RData")
 ```
 
 ### Validate on SCAPIS
 
 ```{r}
-lasso_binary <- readRDS("results/models/lasso_binary.RData")
+lasso_binary <- readRDS("results/models_cac100/lasso_binary.RData")
 ```
 
 ```{r}
@@ -114,7 +114,7 @@ auc_all <- lapply(disease_vec, function(disease) {
   })
 
 auc_all <- bind_rows(auc_all)
-saveRDS(auc_all, file="results/models_results/lasso_validate_auc.RData")
+saveRDS(auc_all, file="results/models_results_cac100/lasso_validate_auc.RData")
 ```
 
 ## Elastic Net
