@@ -193,12 +193,12 @@ do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_
         palette = c("1" = "#9E0142", "0" = "lightgrey"))
 
 # Only CAC features with more than 50% Importance
-cac_features_50 <- lasso_features |> 
+cac_features_10 <- lasso_features |> 
   filter(Disease == "CAC") |> 
-  filter(Scaled_Importance > 50) |> 
+  filter(Scaled_Importance > 10) |> 
   pull(Variable)
 
-do_umap(data_igt |> select(DAid, any_of(cac_features_50), -Sex, -Smoke_status),
+do_umap(data_igt |> select(DAid, any_of(cac_features_10), -Sex, -Smoke_status),
         metadata |> mutate(CAC = factor(CAC)),
         color = "CAC",
         palette = c("1" = "#9E0142", "0" = "lightgrey"))
