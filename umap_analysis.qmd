@@ -20,18 +20,17 @@ metadata <- import_df("data/processed_data/metadata_preprocessed.rda")
 ```
 
 ```{r}
-disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
+disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC")
 ```
 
 ```{r}
-disease_palette <- c("Obesity" = "#E7662B", 
+disease_palette <- c("Obesity" = "#A6CEE3", 
                      "IGT" = "#836879", 
                      "T2D" = "#321433",
                      "MS" = "#08585A", 
                      "MASLD" = "#FFD321", 
                      "Carotid_plaque" = "#E8A29A", 
-                     "CAC" = "#9E0142", 
-                     "Sleep_apnea" = "#A6CEE3")
+                     "CAC" = "#9E0142")
 ```
 
 # Import LASSO model features
@@ -217,18 +216,4 @@ do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_
         metadata |> mutate(Carotid_plaque = factor(Carotid_plaque)),
         color = "Carotid_plaque",
         palette = c("1" = "#E8A29A", "0" = "lightgrey"))
-```
-
-### Sleep Apnea
-
-```{r}
-do_umap(data_igt |> select(-Sex, -Smoke_status, -all_of(disease_vec)),
-        metadata |> mutate(Sleep_apnea = factor(Sleep_apnea)),
-        color = "Sleep_apnea",
-        palette = c("1" = "#A6CEE3", "0" = "lightgrey"))
-
-do_umap(data_igt |> select(DAid, any_of(proteomics_features_list), -Sex, -Smoke_status),
-        metadata |> mutate(Sleep_apnea = factor(Sleep_apnea)),
-        color = "Sleep_apnea",
-        palette = c("1" = "#A6CEE3", "0" = "lightgrey"))
 ```
