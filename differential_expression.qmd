@@ -24,17 +24,18 @@ metadata <- import_df("data/processed_data/metadata_preprocessed.rda")
 # Differential Expression - limma
 
 ```{r}
-disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC")
+disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
 ```
 
 ```{r}
-disease_palette <- c("Obesity" = "#A6CEE3", 
+disease_palette <- c("Obesity" = "#E7662B", 
                      "IGT" = "#836879", 
                      "T2D" = "#321433",
                      "MS" = "#08585A", 
                      "MASLD" = "#FFD321", 
                      "Carotid_plaque" = "#E8A29A", 
-                     "CAC" = "#9E0142")
+                     "CAC" = "#9E0142", 
+                     "Sleep_apnea" = "#A6CEE3")
 ```
 
 ```{r}
@@ -136,13 +137,14 @@ names(volcanos_all_scapis) <- disease_vec
 ## Top proteins boxplots
 
 ```{r}
-disease_palette_boxplot <- c("Obesity" = "#A6CEE3", 
+disease_palette_boxplot <- c("Obesity" = "#E7662B", 
                              "IGT" = "#836879", 
                              "T2D" = "#321433",
                              "MS" = "#08585A", 
                              "MASLD" = "#FFD321", 
                              "Carotid_plaque" = "#E8A29A", 
-                             "CAC" = "#9E0142",
+                             "CAC" = "#9E0142", 
+                             "Sleep_apnea" = "#A6CEE3",
                              "Other Disease" = "grey70",
                              "Healthy" = "grey90")
 
@@ -201,13 +203,14 @@ plot_data |>
 ## Top-proteins radar plots
 
 ```{r}
-disease_palette_boxplot <- c("Obesity" = "#A6CEE3", 
+disease_palette_boxplot <- c("Obesity" = "#E7662B", 
                              "IGT" = "#836879", 
                              "T2D" = "#321433",
                              "MS" = "#08585A", 
                              "MASLD" = "#FFD321", 
                              "Carotid_plaque" = "#E8A29A", 
-                             "CAC" = "#9E0142",
+                             "CAC" = "#9E0142", 
+                             "Sleep_apnea" = "#A6CEE3",
                              "Other Disease" = "grey70",
                              "Healthy" = "grey90")
 
@@ -297,7 +300,7 @@ for (i in seq_along(disease_vec)) {
 Top 20 proteins for each disease according to logFC. LogFC > 0.1 and adj.P.val < 0.05.
 
 ```{r}
-top_proteins <- de_all |> 
+top_proteins <- de_all_igt |> 
   filter(adj.P.Val < 0.05, logFC > 0.1) |> 
   arrange(desc(logFC)) |> 
   group_by(Disease) |>
@@ -305,7 +308,7 @@ top_proteins <- de_all |>
   ungroup() |> 
   pull(Assay)
 
-de_all |>
+de_all_igt |>
   filter(Assay %in% top_proteins) |>
   filter(adj.P.Val < 0.05, logFC > 0.1) |> 
   select(Disease, Assay, logFC) |> 
@@ -327,7 +330,7 @@ de_all |>
 Stricter filtering.
 
 ```{r}
-de_all |> 
+de_all_igt |> 
   filter(adj.P.Val < 0.05, logFC > 0.5) |> 
   arrange(desc(logFC)) |> 
   select(Disease, Assay, logFC) |> 
@@ -350,28 +353,29 @@ de_all |>
 
 ```{r}
 lasso_onlyproteins_features <- readRDS("results/models_results/lasso_onlyproteins_features.RData")
-lasso_onlyproteins <- readRDS(res, file="results/models/lasso_binary_onlyproteins.RData")
+lasso_onlyproteins <- readRDS("results/models/lasso_binary_onlyproteins.RData")
 ```
 
-Binary annotation of proteins with importance > 50.
+Binary annotation of proteins with importance > 30.
 
 ```{r}
-disease_palette <- list(Obesity = c("0" = "white", "1" = "#A6CEE3"), 
-                        IGT = c("0" = "white", "1" = "#836879"), 
-                        T2D = c("0" = "white", "1" = "#321433"),
-                        MS = c("0" = "white", "1" = "#08585A"), 
-                        MASLD = c("0" = "white", "1" = "#FFD321"), 
-                        Carotid_plaque = c("0" = "white", "1" = "#E8A29A"), 
-                        CAC = c("0" = "white", "1" = "#9E0142"))
+disease_palette_heatmap <- list(Obesity = c("0" = "white", "1" = "#E7662B"), 
+                                IGT = c("0" = "white", "1" = "#836879"), 
+                                T2D = c("0" = "white", "1" = "#321433"),
+                                MS = c("0" = "white", "1" = "#08585A"), 
+                                MASLD = c("0" = "white", "1" = "#FFD321"), 
+                                Carotid_plaque = c("0" = "white", "1" = "#E8A29A"), 
+                                CAC = c("0" = "white", "1" = "#9E0142"),
+                                Sleep_apnea = c("0" = "white", "1" = "#A6CEE3"))
 
 binary_disease_cols <- lasso_onlyproteins_features |> 
-  filter(Scaled_Importance > 50) |> 
+  filter(Scaled_Importance > 30) |> 
   select(-Importance, -Sign) |> 
   pivot_wider(names_from = Disease, values_from = Scaled_Importance) |> 
   mutate(across(where(is.numeric), ~ ifelse(is.na(.), 0, 1))) |> 
   rename(Protein = Variable)
 
-top_proteins <- de_all |> 
+top_proteins <- de_all_igt |> 
   filter(adj.P.Val < 0.05, logFC > 0.1) |> 
   arrange(desc(logFC)) |> 
   group_by(Disease) |>
@@ -379,7 +383,7 @@ top_proteins <- de_all |>
   ungroup() |> 
   pull(Assay)
 
-de_all |>
+de_all_igt |>
   filter(Assay %in% top_proteins) |>
   filter(adj.P.Val < 0.05, logFC > 0.1) |> 
   select(Disease, Assay, logFC) |> 
@@ -395,7 +399,7 @@ de_all |>
     values = logFC,
     colors = c("white", "red4"),
     annotation_col = c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC"),
-    annotation_colors = disease_palette,
+    annotation_colors = disease_palette_heatmap,
     annotation_legend = FALSE,
     cluster_rows = TRUE,
     cluster_cols = TRUE,
@@ -409,13 +413,14 @@ Continuous importance annotation. >0 filtering.
 Metabolic syndrome is very interesting as the features with more than 50% (except 1) are not differentially expressed. However, MS is predicted with an AUC of 0.86.
 
 ```{r}
-disease_palette <- list(Obesity = c("0" = "white", "100" = "#A6CEE3"), 
-                        IGT = c("0" = "white", "100" = "#836879"), 
-                        T2D = c("0" = "white", "100" = "#321433"),
-                        MS = c("0" = "white", "100" = "#08585A"), 
-                        MASLD = c("0" = "white", "100" = "#FFD321"), 
-                        Carotid_plaque = c("0" = "white", "1" = "#E8A29A"), 
-                        CAC = c("0" = "white", "100" = "#9E0142"))
+disease_palette_heatmap <- list(Obesity = c("0" = "white", "1" = "#E7662B"), 
+                                IGT = c("0" = "white", "1" = "#836879"), 
+                                T2D = c("0" = "white", "1" = "#321433"),
+                                MS = c("0" = "white", "1" = "#08585A"), 
+                                MASLD = c("0" = "white", "1" = "#FFD321"), 
+                                Carotid_plaque = c("0" = "white", "1" = "#E8A29A"), 
+                                CAC = c("0" = "white", "1" = "#9E0142"),
+                                Sleep_apnea = c("0" = "white", "1" = "#A6CEE3"))
 
 binary_disease_cols <- lasso_onlyproteins_features |> 
   filter(Scaled_Importance > 0) |> 
@@ -424,7 +429,7 @@ binary_disease_cols <- lasso_onlyproteins_features |>
   mutate(across(everything(), ~ replace_na(., 0))) |> 
   rename(Protein = Variable)
 
-top_proteins <- de_all |> 
+top_proteins <- de_all_igt |> 
   filter(adj.P.Val < 0.05, logFC > 0.1) |> 
   arrange(desc(logFC)) |> 
   group_by(Disease) |>
@@ -432,7 +437,7 @@ top_proteins <- de_all |>
   ungroup() |> 
   pull(Assay)
 
-de_all |>
+de_all_igt |>
   filter(Assay %in% top_proteins) |>
   filter(adj.P.Val < 0.05, logFC > 0.1) |> 
   select(Disease, Assay, logFC) |> 
@@ -448,7 +453,7 @@ de_all |>
     values = logFC,
     colors = c("white", "red4"),
     annotation_col = c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC"),
-    annotation_colors = disease_palette,
+    annotation_colors = disease_palette_heatmap,
     cluster_rows = TRUE,
     cluster_cols = TRUE,
     show_colnames = TRUE,
@@ -457,6 +462,10 @@ de_all |>
 ```
 
 ## Validation analysis
+
+```{r}
+disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC")
+```
 
 ```{r}
 upreg_proteins_igt <- de_all_igt |> 
@@ -601,7 +610,7 @@ plots <- list()
 
 for (i in seq_along(disease_vec)) {
   disease <- disease_vec[i]
-  
+  print(disease)
   p <- upreg_proteins_igt |> 
     left_join(de_all_scapis |> select(Assay, Disease, logFC, adj.P.Val), 
               by = c("Assay", "Disease")) |>
