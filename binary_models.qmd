@@ -868,3 +868,18 @@ for (num in c(5, 10, 15, 20, 25, 30, 35, 40, 45, 50)) {
 
 lasso_de_all <- bind_rows(lasso_de_all)
 ```
+
+```{r}
+lasso_onlyproteins_auc <- readRDS("results/models_results/lasso_onlyproteins_auc.RData")
+
+lasso_de_all |> 
+  ggplot(aes(x = n, y = AUC, color = Disease)) +
+  geom_line() +
+  geom_point() +
+  geom_hline(data = lasso_onlyproteins_auc, aes(yintercept = AUC), linetype = "dashed") +
+  scale_color_manual(values = disease_palette) +
+  labs(x = "Number of selected features", y = "AUC") +
+  facet_wrap(~Disease) +
+  theme_hpa()
+
+```
