@@ -24,13 +24,14 @@ disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC"
 ```
 
 ```{r}
-disease_palette <- c("Obesity" = "#A6CEE3", 
+disease_palette <- c("Obesity" = "#E7662B", 
                      "IGT" = "#836879", 
                      "T2D" = "#321433",
                      "MS" = "#08585A", 
                      "MASLD" = "#FFD321", 
                      "Carotid_plaque" = "#E8A29A", 
-                     "CAC" = "#9E0142")
+                     "CAC" = "#9E0142",
+                     "Sleep_apnea" = "#A6CEE3")
 ```
 
 # Import LASSO model features
