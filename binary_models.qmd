@@ -35,17 +35,18 @@ source("ml_functions.R")
 # Binary models - clinical + proteomics
 
 ```{r}
-disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC")
+disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
 ```
 
 ```{r}
-disease_palette <- c("Obesity" = "#A6CEE3", 
+disease_palette <- c("Obesity" = "#E7662B", 
                      "IGT" = "#836879", 
                      "T2D" = "#321433",
                      "MS" = "#08585A", 
                      "MASLD" = "#FFD321", 
                      "Carotid_plaque" = "#E8A29A", 
-                     "CAC" = "#9E0142")
+                     "CAC" = "#9E0142",
+                     "Sleep_apnea" = "#A6CEE3")
 ```
 
 ## LASSO
@@ -69,7 +70,7 @@ names(res) <- disease_vec
 ```
 
 ```{r}
-saveRDS(res, file="results/models_cac100/lasso_binary.RData")
+saveRDS(res, file="results/models/lasso_binary.RData")
 ```
 
 ```{r}
@@ -78,14 +79,14 @@ res_all <- extract_model_res(res, disease_vec)
 features <- res_all$features
 auc <- res_all$auc
 
-saveRDS(features, file="results/models_results_cac100/lasso_features.RData")
-saveRDS(auc, file="results/models_results_cac100/lasso_auc.RData")
+saveRDS(features, file="results/models_results/lasso_features.RData")
+saveRDS(auc, file="results/models_results/lasso_auc.RData")
 ```
 
 ### Validate on SCAPIS
 
 ```{r}
-lasso_binary <- readRDS("results/models_cac100/lasso_binary.RData")
+lasso_binary <- readRDS("results/models/lasso_binary.RData")
 ```
 
 ```{r}
@@ -114,7 +115,7 @@ auc_all <- lapply(disease_vec, function(disease) {
   })
 
 auc_all <- bind_rows(auc_all)
-saveRDS(auc_all, file="results/models_results_cac100/lasso_validate_auc.RData")
+saveRDS(auc_all, file="results/models_results/lasso_validate_auc.RData")
 ```
 
 ## Elastic Net
@@ -225,6 +226,77 @@ auc <- res_all$auc
 
 saveRDS(features, file="results/models_results/lasso_onlyproteins_features.RData")
 saveRDS(auc, file="results/models_results/lasso_onlyproteins_auc.RData")
+```
+
+## LASSO after DE
+
+Loop over diseases.
+
+```{r}
+res <- lapply(disease_vec, function(disease) {
+  print(paste(disease, "model:"))
+  cols_to_exclude <- disease_vec |> setdiff(disease)
+  
+  discovery_cohort <- data_igt |>
+    select(-all_of(cols_to_exclude)) |> 
+    select(-any_of(metadata_cols), -Sleep_apnea)
+
+  model_res <- lasso_de(discovery_cohort, metadata, disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 30, ntop=50)
+  boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
+  return(c(model_res, list("boxplot" = boxplot)))
+})
+
+names(res) <- disease_vec
+```
+
+```{r}
+saveRDS(res, file="results/models/lasso_binary_onlydeproteins_50.RData")
+```
+
+
+```{r}
+res_all <- extract_model_res(res, disease_vec)
+
+features <- res_all$features
+auc <- res_all$auc
+
+saveRDS(features, file="results/models_results/lasso_onlydeproteins_features_50.RData")
+saveRDS(auc, file="results/models_results/lasso_onlydeproteins_auc_50.RData")
+```
+
+### Validate on SCAPIS
+
+```{r}
+lasso_binary_onlydeproteins <- readRDS("results/models/lasso_binary_onlydeproteins_30.RData")
+```
+
+```{r}
+res <- lapply(disease_vec, function(disease) {
+  print(paste(disease, "model:"))
+  cols_to_exclude <- disease_vec |> setdiff(disease)
+  
+  discovery_cohort <- data_igt |>
+    select(-all_of(cols_to_exclude))
+  
+  validation_cohort <- data_scapis |>
+    select(-all_of(cols_to_exclude)) |> 
+    select(all_of(names(discovery_cohort)))
+  
+  model_res <- validate_model(lasso_binary_onlydeproteins[[disease]]$final_wf, discovery_cohort, validation_cohort, disease, disease_palette)
+  
+  return(model_res)
+})
+
+names(res) <- disease_vec
+```
+
+```{r}
+auc_all <- lapply(disease_vec, function(disease) {
+    auc <- res[[disease]]$auc |> as_tibble() |> rename(AUC = value) |> mutate(Disease = disease)
+  })
+
+auc_all <- bind_rows(auc_all)
+saveRDS(auc_all, file="results/models_results/lasso_validate_auc.RData")
 ```
 
 # Binary models - only clinical
@@ -767,4 +839,32 @@ lasso_pca_auc |>
   labs(x = "Number of PCs", y = "AUC") +
   facet_wrap(~Disease) +
   theme_hpa()
+```
+
+## DE feature selection analysis
+
+```{r}
+lasso_de_all <- list()
+
+for (num in c(5, 10, 15, 20, 25, 30, 35, 40, 45, 50)) {
+  
+  file_name_auc <- "results/models_results/lasso_onlydeproteins_auc_"
+  file_name_auc <- paste0(file_name_auc, num, ".RData")
+  file_name_feature <- "results/models_results/lasso_onlydeproteins_features_"
+  file_name_feature <- paste0(file_name_feature, num, ".RData")
+  
+  lasso_de_auc <- readRDS(file_name_auc)
+  lasso_de_features <- readRDS(file_name_feature) |> 
+    group_by(Disease) |>
+    summarise(n = n()) |> 
+    ungroup()
+  
+  lasso_de <- lasso_de_auc |> 
+    left_join(lasso_de_features, by = "Disease")
+  
+  lasso_de_all <- append(lasso_de_all, list(lasso_de))
+  
+}
+
+lasso_de_all <- bind_rows(lasso_de_all)
 ```
