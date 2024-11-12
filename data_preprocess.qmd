@@ -276,13 +276,14 @@ Number of diseases in the 2 datasets.
 ```{r}
 disease_cols <- c("Obesity", "MS", "MASLD", "CAC", "Carotid_plaque", "Myocardial_infarction", "Atrial_fibrillation", "Coronary_artery_intervention", "Stroke", "COPD", "Asthma", "Tuberculosis", "Sleep_apnea", "Celiac_disease", "Crohn", "Rheumatic_disease", "T2D", "IGT")
 
-disease_palette <- c("Obesity" = "#A6CEE3", 
+disease_palette <- c("Obesity" = "#E7662B", 
                      "IGT" = "#836879", 
                      "T2D" = "#321433",
                      "MS" = "#08585A", 
                      "MASLD" = "#FFD321", 
                      "Carotid_plaque" = "#E8A29A", 
-                     "CAC" = "#9E0142")
+                     "CAC" = "#9E0142",
+                     "Sleep_apnea" = "#A6CEE3")
 
 metadata_preprocessed |> 
   mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGT")) |> 
