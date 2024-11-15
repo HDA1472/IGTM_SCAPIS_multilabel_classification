@@ -253,7 +253,7 @@ Very similar distributions between the 2 datasets regarding both Sex and Age.
 
 ```{r}
 metadata_preprocessed |> 
-  mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGT")) |> 
+  mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGTM")) |> 
   count(Sex, Cohort) |> 
   ggplot(aes(x = n, y = Cohort, fill = Sex)) +
   geom_bar(stat = "identity", position = "stack") +
@@ -262,7 +262,7 @@ metadata_preprocessed |>
   theme_hpa()
 
 metadata_preprocessed |> 
-  mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGT")) |> 
+  mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGTM")) |> 
   select(Age, Cohort) |> 
   ggplot2::ggplot(ggplot2::aes(x = Age, y = Cohort, fill = Cohort)) +
   geom_density_ridges2(quantile_lines = TRUE, alpha = 0.7, quantiles = 2, scale = 1) +
@@ -274,7 +274,7 @@ metadata_preprocessed |>
 Number of diseases in the 2 datasets.
 
 ```{r}
-disease_cols <- c("Obesity", "MS", "MASLD", "CAC", "Carotid_plaque", "Myocardial_infarction", "Atrial_fibrillation", "Coronary_artery_intervention", "Stroke", "COPD", "Asthma", "Tuberculosis", "Sleep_apnea", "Celiac_disease", "Crohn", "Rheumatic_disease", "T2D", "IGT")
+disease_cols <- c("Obesity", "MS", "MASLD", "CAC", "Carotid_plaque", "Atrial_fibrillation", "Stroke", "COPD", "Asthma", "Tuberculosis", "Sleep_apnea", "Celiac_disease", "Crohn", "Rheumatic_disease", "T2D", "IGT")  # "Myocardial_infarction", "Coronary_artery_intervention", 
 
 disease_palette <- c("Obesity" = "#E7662B", 
                      "IGT" = "#836879", 
@@ -286,7 +286,7 @@ disease_palette <- c("Obesity" = "#E7662B",
                      "Sleep_apnea" = "#A6CEE3")
 
 metadata_preprocessed |> 
-  mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGT")) |> 
+  mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGTM")) |> 
   select(DAid, Cohort, all_of(disease_cols)) |> 
   pivot_longer(cols = -c("DAid", "Cohort"), names_to = "Disease", values_to = "Status") |>
   filter(Status != 0) |> 
@@ -297,7 +297,8 @@ metadata_preprocessed |>
   labs(x = "Number of samples", y = "") +
   facet_wrap(~Cohort, scales = "free_y", nrow = 2) +
   scale_fill_manual(values = disease_palette, na.value = "lightgrey") +
-  theme_hpa()
+  theme_hpa() +
+  theme(legend.position = "none")
 ```
 
 Check the correlation between the different disease classes. We see a big block. Myocardial infarction and coronary artery intervention are highly correlated and into the block but they only have few samples each (around 20 in each cohort).
@@ -317,33 +318,14 @@ corrplot(cor_matrix,
 ```
 
 ```{r}
-# SCAPIS
 metadata_preprocessed |> 
-  mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGT")) |> 
-  filter(Cohort == "SCAPIS") |>
+  mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGTM")) |> 
+  #filter(Cohort == "IGTM") |>
   select(DAid, Cohort, Sex, Age, BMI, all_of(disease_cols)) |> 
-  pivot_longer(cols = -c("DAid", "Cohort", "Sex", "Age", "BMI"), names_to = "Disease", values_to = "Status") |> 
-  tidyheatmap(
-    rows = Disease,
-    columns = DAid,
-    values = Status,
-    colors = c("lightgrey", "red"),
-    annotation_col = c(Age, Sex, BMI),
-    cluster_rows = TRUE,
-    cluster_cols = TRUE,
-    legend_breaks = c(0, 1),
-    legend_labels = c("NO", "YES"),
-    show_colnames = FALSE,
-    clustering_method = "ward.D2")
-```
-
-```{r}
-# IGT
-metadata_preprocessed |> 
-  mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGT")) |> 
-  filter(Cohort == "IGT") |>
-  select(DAid, Cohort, Sex, Age, BMI, all_of(disease_cols)) |> 
-  pivot_longer(cols = -c("DAid", "Cohort", "Sex", "Age", "BMI"), names_to = "Disease", values_to = "Status") |> 
+  pivot_longer(cols = -c("DAid", "Cohort", "Sex", "Age", "BMI"), 
+               names_to = "Disease", 
+               values_to = "Status") |> 
+  mutate(Status = if_else(is.na(Status), 0, Status)) |>
   tidyheatmap(
     rows = Disease,
     columns = DAid,
