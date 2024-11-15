@@ -66,7 +66,9 @@ res_igt <- lapply(disease_vec, function(disease) {
                      control = 0,
                      correct = correct,
                      correct_type = correct_type,
-                     logfc_lim = 0)
+                     logfc_lim = 0,
+                     top_up_prot = 3,
+                     top_down_prot = 0)
 })
 
 names(res_igt) <- disease_vec
@@ -111,7 +113,9 @@ res_scapis <- lapply(disease_vec, function(disease) {
                      control = 0,
                      correct = correct,
                      correct_type = correct_type,
-                     logfc_lim = 0)
+                     logfc_lim = 0,
+                     top_up_prot = 3,
+                     top_down_prot = 0)
 })
 
 names(res_scapis) <- disease_vec
@@ -133,6 +137,38 @@ names(volcanos_all_scapis) <- disease_vec
 ```
 
 # Analysis of DE results
+
+## Summary DE results
+
+```{r}
+barplot_data <- de_all_igt |>
+  bind_rows() |>
+  mutate(sig = factor(sig, levels = c("not significant", "significant down", "significant up"))) |>
+  group_by(Disease, sig) |>
+  summarise(Count = n()) |>
+  ungroup()
+
+de_prot_n <- barplot_data |>
+  filter(sig == "significant up" | sig == "significant down") |>
+  group_by(Disease) |>
+  summarize(sum = sum(Count)) |>
+  ungroup() |> 
+  select(Disease, sum) |> 
+  unique() |> 
+  bind_rows(data.frame(Disease = "Sleep_apnea", sum = 0))
+
+barplot_data |>
+  left_join(de_prot_n, by = "Disease") |>
+  ggplot(aes(x = Count, y = reorder(Disease, sum), fill = sig)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(x = "Number of proteins", y = "", fill = "Significance") +
+  theme_hpa(angled = T) +
+  theme(legend.position = "top",
+        legend.title = element_text(face = "bold")) +
+  scale_fill_hpa("diff_exp") +
+  scale_x_continuous(limits=c(0, 1500), breaks=c(0, 1500))
+    
+```
 
 ## Top proteins boxplots
 
@@ -317,8 +353,8 @@ de_all_igt |>
   mutate(across(everything(), ~ replace_na(., 0))) |> 
   pivot_longer(cols = -Protein, names_to = "Disease", values_to = "logFC") |> 
   tidyheatmap(
-    rows = Disease,
-    columns = Protein,
+    rows = Protein,
+    columns = Disease,
     values = logFC,
     colors = c("white", "red4"),
     cluster_rows = TRUE,
