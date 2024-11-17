@@ -11,6 +11,9 @@ library(tidyheatmaps)
 library(forcats)
 library(patchwork)
 library(fmsb)
+library(corrplot)
+library(igraph)
+library(ggraph)
 ```
 
 # Import data & metadata
@@ -52,7 +55,7 @@ res_igt <- lapply(disease_vec, function(disease) {
     select(-all_of(disease_vec)) |> 
     select(-any_of(metadata_cols))
   
-  if (disease == "Obesity") {
+  if (disease %in% c("Obesity", "Sleep_apnea")) {
     correct <- c("Age", "Sex")
     correct_type <- c("numeric", "factor")
   } else {
@@ -99,7 +102,7 @@ res_scapis <- lapply(disease_vec, function(disease) {
     select(-all_of(disease_vec)) |> 
     select(-any_of(metadata_cols))
   
-  if (disease == "Obesity") {
+  if (disease %in% c("Obesity", "Sleep_apnea")) {
     correct <- c("Age", "Sex")
     correct_type <- c("numeric", "factor")
   } else {
@@ -524,15 +527,12 @@ for (i in seq_along(disease_vec)) {
     ggplot(aes(x = logFC, y = fct_reorder(Assay, logFC), color = Disease)) +
     geom_segment(aes(x = 0, xend = logFC, y = Assay, yend = Assay)) +
     geom_point(size = 4) +
-    geom_vline(xintercept = 0.1, linetype = "dashed", color = "black") +
+    #geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
     scale_color_manual(values = disease_palette) +
     theme_hpa() +
     theme(legend.position = "none", plot.margin = margin(2, 0, 2, 0)) +
     xlim(0, 1.5) +
-    labs(y = element_blank(), title = disease) +
-    theme(axis.title.y = element_blank(), 
-          axis.text.y = element_blank(), 
-          axis.ticks.y = element_blank())
+    labs(y = element_blank(), title = disease)
   
   # Remove x-axis and x-axis label for all but the last plot
   if (i < length(disease_vec)) {
@@ -548,7 +548,7 @@ for (i in seq_along(disease_vec)) {
 }
 
 combined_plot_igt <- wrap_plots(plots, ncol = 1) + 
-  plot_annotation(title = 'IGT') &
+  plot_annotation(title = 'IGTM Cohort') &
   theme(plot.title = element_text(hjust = 0.5, face = "bold"))
 combined_plot_igt
 ```
@@ -566,7 +566,7 @@ for (i in seq_along(disease_vec)) {
     ggplot(aes(x = logFC.y, y = fct_reorder(Assay, logFC.x), color = Disease)) +
     geom_segment(aes(x = 0, xend = logFC.y, y = Assay, yend = Assay)) +
     geom_point(size = 4) +
-    geom_vline(xintercept = 0.1, linetype = "dashed", color = "black") +
+    #geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
     scale_color_manual(values = disease_palette) +
     theme_hpa() +
     theme(legend.position = "none", plot.margin = margin(2, 0, 2, 0)) +
@@ -590,13 +590,13 @@ for (i in seq_along(disease_vec)) {
 }
 
 combined_plot_scapis <- wrap_plots(plots, ncol = 1) + 
-  plot_annotation(title = 'SCAPIS') &
+  plot_annotation(title = 'SCAPIS Cohort') &
   theme(plot.title = element_text(hjust = 0.5, face = "bold"))
 combined_plot_scapis
 ```
 
 ```{r}
-lasso_onlyproteins_features <- readRDS("results/models_results/lasso_onlyproteins_features.RData")
+lasso_onlyproteins_features <- readRDS("results/models_results/lasso_onlydeproteins_features_depanel.RData")
 plots <- list()
 
 for (i in seq_along(disease_vec)) {
@@ -620,7 +620,11 @@ for (i in seq_along(disease_vec)) {
     theme_hpa() +
     theme(legend.position = "none", plot.margin = margin(2, 0, 2, 0)) +
     xlim(-100, 100) +
-    labs(y = element_blank(), title = disease)
+    theme(axis.line.y = element_blank(),
+          axis.title.y = element_blank(), 
+          axis.text.y = element_blank(), 
+          axis.ticks.y = element_blank())
+    
   
   # Remove x-axis and x-axis label for all but the last plot
   if (i < length(disease_vec)) {
@@ -636,7 +640,7 @@ for (i in seq_along(disease_vec)) {
 }
 
 combined_plot_ml <- wrap_plots(plots, ncol = 1) + 
-  plot_annotation(title = 'LASSO trained on IGT') &
+  plot_annotation(title = 'LASSO model trained on IGTM') &
   theme(plot.title = element_text(hjust = 0.5, face = "bold"))
 combined_plot_ml
 ```
@@ -650,8 +654,11 @@ for (i in seq_along(disease_vec)) {
   p <- upreg_proteins_igt |> 
     left_join(de_all_scapis |> select(Assay, Disease, logFC, adj.P.Val), 
               by = c("Assay", "Disease")) |>
+    left_join(lasso_onlyproteins_features |> filter(Disease == disease) |> rename(Assay = Variable), 
+              by = c("Assay", "Disease")) |> 
     filter(Disease == disease) |> 
-    mutate(Validate = ifelse(logFC.y > 0.1 & logFC.x > 0.1, 1, 0)) |>
+    mutate(Scaled_Importance = ifelse(is.na(Scaled_Importance), 0, Scaled_Importance)) |>
+    mutate(Validate = ifelse(logFC.y > 0 & logFC.x > 0 & Scaled_Importance > 0, 1, 0)) |>
     mutate(Validate = as.factor(Validate)) |> 
     ggplot(aes(x = "0", y = fct_reorder(Assay, logFC.x), fill = Validate)) +
     geom_point(shape=22, size = 4) +
@@ -694,11 +701,11 @@ combined_plot_validate
 
 ```{r, warnings = FALSE}
 combined_plot_ml <- wrap_elements(full = combined_plot_ml) +
-  plot_annotation(title = "LASSO trained on IGT") &
+  plot_annotation(title = "LASSO model trained on IGTM") &
   theme(plot.title = element_text(hjust = 0.5, face = "bold"))
 
 combined_plot_igt <- wrap_elements(full = combined_plot_igt) +
-  plot_annotation(title = "IGT Cohort") &
+  plot_annotation(title = "IGTM Cohort") &
   theme(plot.title = element_text(hjust = 0.5, face = "bold"))
 
 combined_plot_scapis <- wrap_elements(full = combined_plot_scapis) +
@@ -710,8 +717,192 @@ combined_plot_validate <- wrap_elements(full = combined_plot_validate) +
   theme(plot.title = element_text(hjust = 0.5, face = "bold"))
 
 # Combine the wrapped plots side-by-side
-final_plot <- (combined_plot_ml | combined_plot_igt | combined_plot_scapis | combined_plot_validate) +
-  plot_layout(widths = c(4, 3, 3, 1))
+final_plot <- (combined_plot_igt | combined_plot_scapis | combined_plot_ml | combined_plot_validate) +
+  plot_layout(widths = c(3.5, 3, 3, 1))
 final_plot
 ```
 
+## Top protein features boxplots
+
+```{r}
+lasso_onlyproteins_features <- readRDS("results/models_results/lasso_onlydeproteins_features_depanel.RData")
+
+disease_palette_boxplot <- c("Obesity" = "#E7662B", 
+                             "IGT" = "#836879", 
+                             "T2D" = "#321433",
+                             "MS" = "#08585A", 
+                             "MASLD" = "#FFD321", 
+                             "Carotid_plaque" = "#E8A29A", 
+                             "CAC" = "#9E0142", 
+                             "Sleep_apnea" = "#A6CEE3",
+                             "Other Disease" = "grey70",
+                             "Healthy" = "grey90")
+
+top_proteins <- lasso_onlyproteins_features |> 
+  mutate(Disease_protein = paste(Disease, Variable, sep = "_")) |> 
+  filter(Disease_protein != "MS_ACY1") |> 
+  select(-Disease_protein) |> 
+  group_by(Disease) |>
+  arrange(Disease, desc(Scaled_Importance)) |>
+  slice_head(n = 3) |> 
+  ungroup() |> 
+  rename(Protein = Variable)
+
+top_proteins_vec <- top_proteins |> 
+  pull(Protein)
+
+plot_data <- data_igt |> 
+  select(DAid, all_of(disease_vec), all_of(top_proteins_vec)) |> 
+  pivot_longer(cols = -c(DAid, disease_vec), names_to = "Protein", values_to = "Value") |> 
+  left_join(top_proteins |> select(Protein, Disease) |> unique(), 
+            by = "Protein", 
+            relationship = "many-to-many") |> 
+  mutate(Disease_Value = case_when(
+    Disease == "Obesity" ~ Obesity,
+    Disease == "CAC" ~ CAC,
+    Disease == "T2D" ~ T2D,
+    Disease == "MS" ~ MS,
+    Disease == "MASLD" ~ MASLD,
+    Disease == "Carotid_plaque" ~ Carotid_plaque,
+    Disease == "IGT" ~ IGT,
+    TRUE ~ NA_real_
+  )) |> 
+  mutate(Any_disease = Obesity + CAC + T2D + MS + MASLD + Carotid_plaque + IGT) |> 
+  mutate(Disease_Value = case_when(
+    Disease_Value == 1 ~ Disease,
+    Any_disease == 0 ~ "Healthy",
+    Disease_Value == 0 ~ "Other Disease",
+    TRUE ~ "Control"  # Default case for NA values
+  )) #|> 
+  #mutate(Disease_protein = paste(Disease, Protein, sep = "_"))
+
+plot_data |> 
+  ggplot(aes(x = factor(Disease_Value, 
+                        levels = c("Healthy", 
+                                   "Other Disease", 
+                                   unique(Disease[!is.na(Disease_Value)]))), 
+             y = Value, 
+             fill = Disease_Value)) +
+  geom_boxplot(position = position_dodge(0.8), outlier.size = 1.5) +
+  scale_fill_manual(values = disease_palette_boxplot) +
+  facet_wrap(~factor(Protein, top_proteins_vec), scales = "free", nrow = 3) +
+  labs(x = element_blank(), y = "NPX") +
+  theme_hpa() + 
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Top-feature correlation with clinical metadata
+
+```{r}
+metadata_cols <- c("Sex", "Age", "BMI", "Smoke_status", "MAP_Mean", "HbA1c", "HOMA_IR", "Glucose", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT")
+
+lasso_onlyproteins_features <- readRDS("results/models_results/lasso_onlydeproteins_features_depanel.RData")
+
+top_proteins <- lasso_onlyproteins_features |> 
+  arrange(Disease, desc(Scaled_Importance)) |>
+  filter(Scaled_Importance > 50) |>
+  rename(Protein = Variable) |> 
+  select(Protein) |> 
+  unique() |> 
+  pull(Protein)
+
+protein_data <- data_igt |> select(all_of(top_proteins))
+
+clinical_data <- metadata |> 
+  filter(DAid %in% data_igt$DAid) |>
+  arrange(match(DAid, data_igt$DAid)) |> 
+  select(all_of(metadata_cols)) |> 
+  mutate(Smoke_status = case_when(
+    Smoke_status == "NEVER" ~ 0,
+    Smoke_status == "EX_SMOKER" ~ 1,
+    Smoke_status == "CURRENT" ~ 2,
+    TRUE ~ NA_real_
+  )) |>
+  mutate(Sex = case_when(
+    Sex == "F" ~ 0,
+    Sex == "M" ~ 1,
+    TRUE ~ NA_real_
+  ))
+
+correlation_matrix <- cor(protein_data, clinical_data, use = "pairwise.complete.obs", method = "spearman")
+
+row_dendrogram <- hclust(dist(correlation_matrix), method = "ward.D2")
+row_order <- row_dendrogram$order
+
+col_dendrogram <- hclust(dist(t(correlation_matrix)), method = "ward.D2")
+col_order <- col_dendrogram$order
+
+correlation_matrix <- correlation_matrix[row_order, col_order]
+
+corrplot(correlation_matrix, 
+         method = "square",
+         is.corr = FALSE,
+         tl.srt = 45,
+         tl.col = "black",
+         col.lim = c(-1, 1)) 
+```
+
+## Network with features
+
+```{r}
+lasso_onlyproteins_features <- readRDS("results/models_results/lasso_onlydeproteins_features_depanel.RData")
+
+importance_score <- 1
+
+features_per_model <- lasso_onlyproteins_features |> 
+  filter(Scaled_Importance > importance_score) |> 
+  select(Disease, Variable, Scaled_Importance) |>
+  rename(Overall = Scaled_Importance,
+         Protein = Variable)
+
+node_pal <-
+  c(unique(features_per_model$Protein),unique(features_per_model$Disease)) %>%
+  enframe() %>%
+  mutate(name = value,
+         value = case_when(name %in% disease_vec ~ disease_palette[name],
+                           T ~ "grey70")) %>%
+  deframe()
+
+# Generate network
+set.seed(213)
+features_per_model %>% 
+  as_tbl_graph() %>% 
+  activate(nodes) %>% 
+  mutate(s = case_when(name %in% disease_vec ~ 50,
+                       T ~ 5),
+         text_color = case_when(name %in% disease_vec ~ "white",
+                                T ~ "black")) %>%
+  create_layout(layout = "nicely") %>% 
+  ggraph() + 
+  geom_edge_link(aes(), color = "grey90") +
+  geom_node_point(aes(color = name, 
+                      size = s),
+                  show.legend = F)+
+  geom_node_point(data = . %>% 
+                    filter(name %in% disease_vec) ,
+                  aes(color = name,
+                      size = s),
+                  fill ="grey30",
+                  shape = 21,
+                  stroke = 3,
+                  show.legend = F) +
+  scale_color_manual(values = node_pal) +
+  geom_node_text(data = . %>% 
+                   filter(name %in% disease_vec) ,
+                 aes(label = str_wrap(name, width = 10)),
+                 color = "white",
+                 lineheight = 0.8,
+                 size = 1,
+                 vjust = 0,
+                 hjust = 0.5) +
+  geom_node_text(data = . %>% 
+                   filter(!name %in% disease_vec) ,
+                 aes(label = str_wrap(name, width = 10)),
+                 color = "black",
+                 lineheight = 0.8,
+                 size = 1,
+                 repel = TRUE) +
+  theme_void() + 
+  coord_fixed()
+```

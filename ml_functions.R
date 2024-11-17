@@ -331,7 +331,7 @@ lasso_de <- function(join_data,
   
   # Differential expression
   
-  if (variable == "Obesity") {
+  if (variable %in% c("Obesity", "Sleep_apnea")) {
     correct <- c("Age", "Sex")
     correct_type <- c("numeric", "factor")
   } else {

@@ -217,7 +217,6 @@ names(res) <- disease_vec
 saveRDS(res, file="results/models/lasso_binary_onlyproteins.RData")
 ```
 
-
 ```{r}
 res_all <- extract_model_res(res, disease_vec)
 
@@ -233,15 +232,17 @@ saveRDS(auc, file="results/models_results/lasso_onlyproteins_auc.RData")
 Loop over diseases.
 
 ```{r}
+nfeatures_disease = c("Obesity" = 25, "IGT" = 25, "T2D" = 15, "MS" = 20, "MASLD" = 10, "Carotid_plaque" = 10, "CAC" = 15, "Sleep_apnea" = 20)
+
 res <- lapply(disease_vec, function(disease) {
   print(paste(disease, "model:"))
   cols_to_exclude <- disease_vec |> setdiff(disease)
   
   discovery_cohort <- data_igt |>
     select(-all_of(cols_to_exclude)) |> 
-    select(-any_of(metadata_cols), -Sleep_apnea)
+    select(-any_of(metadata_cols))
 
-  model_res <- lasso_de(discovery_cohort, metadata, disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 30, ntop=50)
+  model_res <- lasso_de(discovery_cohort, metadata, disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 30, ntop=nfeatures_disease[[disease]])
   boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
   return(c(model_res, list("boxplot" = boxplot)))
 })
@@ -250,7 +251,7 @@ names(res) <- disease_vec
 ```
 
 ```{r}
-saveRDS(res, file="results/models/lasso_binary_onlydeproteins_50.RData")
+saveRDS(res, file="results/models/lasso_binary_onlydeproteins_depanel.RData")
 ```
 
 
@@ -260,14 +261,14 @@ res_all <- extract_model_res(res, disease_vec)
 features <- res_all$features
 auc <- res_all$auc
 
-saveRDS(features, file="results/models_results/lasso_onlydeproteins_features_50.RData")
-saveRDS(auc, file="results/models_results/lasso_onlydeproteins_auc_50.RData")
+saveRDS(features, file="results/models_results/lasso_onlydeproteins_features_depanel.RData")
+saveRDS(auc, file="results/models_results/lasso_onlydeproteins_auc_depanel.RData")
 ```
 
 ### Validate on SCAPIS
 
 ```{r}
-lasso_binary_onlydeproteins <- readRDS("results/models/lasso_binary_onlydeproteins_30.RData")
+lasso_binary_onlydeproteins <- readRDS("results/models/lasso_binary_onlydeproteins_depanel.RData")
 ```
 
 ```{r}
@@ -556,17 +557,23 @@ plot_data |>
 ## Proteomics + clinical - discovery vs validation
 
 ```{r}
-auc_discovery <- readRDS("results/models_results/lasso_auc.RData")
+auc_discovery <- readRDS("results/models_results/lasso_onlydeproteins_auc_depanel.RData")
 auc_validation <- readRDS("results/models_results/lasso_validate_auc.RData")
-auc_all <- bind_rows(auc_discovery |> mutate(Set = "Discovery"), 
-                     auc_validation |> mutate(Set = "Validation"))
+auc_all <- bind_rows(auc_discovery |> mutate(Set = "Discovery - IGTM"), 
+                     auc_validation |> mutate(Set = "Validation - SCAPIS"))
+
+mean_auc <- auc_all |>
+  group_by(Disease) |>
+  summarise(mean_AUC = mean(AUC)) |>
+  ungroup()
 
 auc_all |>
-  ggplot(aes(x = Disease, y = AUC, fill = Set)) +
+  left_join(mean_auc, by = "Disease") |>
+  ggplot(aes(x = reorder(Disease, -mean_AUC), y = AUC, fill = Set)) +
   geom_bar(stat = "identity", position = "dodge") +
   geom_text(aes(label = round(AUC, 2)), position = position_dodge(width = 1), vjust = -0.5) +
-  scale_fill_manual(values = c("Discovery" = "purple1", "Validation" = "pink")) +
-  labs(y = "AUC") +
+  scale_fill_manual(values = c("Discovery - IGTM" = "#FA9F99", "Validation - SCAPIS" = "#4DD2D6")) +
+  labs(y = "AUC", x = element_blank()) +
   theme_hpa() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
