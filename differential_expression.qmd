@@ -19,26 +19,31 @@ library(ggraph)
 # Import data & metadata
 
 ```{r, message = FALSE, results = 'hide'}
-data_scapis <- import_df("data/processed_data/scapis_joined_preprocessed.rda")
-data_igt <- import_df("data/processed_data/igt_joined_preprocessed.rda")
-metadata <- import_df("data/processed_data/metadata_preprocessed.rda")
+data_scapis <- hd_import_data("data/processed_data/scapis_preprocessed.csv")
+data_igt <- hd_import_data("data/processed_data/igt_preprocessed.csv")
+metadata_scapis <- hd_import_data("data/processed_data/metadata_scapis.csv")
+metadata_igt <- hd_import_data("data/processed_data/metadata_igt.csv")
+metadata <- hd_import_data("data/processed_data/metadata_preprocessed.csv")
+
+obj_scapis <- hd_initialize(data_scapis, metadata_scapis, is_wide = TRUE)
+obj_igt <- hd_initialize(data_igt, metadata_igt, is_wide = TRUE)
 ```
 
 # Differential Expression - limma
 
 ```{r}
-disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
+disease_vec <- c("Obesity", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC")
 ```
 
+"IGT" = "#836879", "Sleep_apnea" = "#A6CEE3" 
+
 ```{r}
-disease_palette <- c("Obesity" = "#E7662B", 
-                     "IGT" = "#836879", 
+disease_palette <- c("Obesity" = "#E7662B",
                      "T2D" = "#321433",
                      "MS" = "#08585A", 
                      "MASLD" = "#FFD321", 
                      "Carotid_plaque" = "#E8A29A", 
-                     "CAC" = "#9E0142", 
-                     "Sleep_apnea" = "#A6CEE3")
+                     "CAC" = "#9E0142")
 ```
 
 ```{r}
@@ -51,27 +56,17 @@ metadata_cols <- c("Sex", "Age", "Smoke_status", "MAP_Mean", "HbA1c", "Chol", "L
 res_igt <- lapply(disease_vec, function(disease) {
   print(paste(disease, "Case:"))
   
-  discovery_cohort <- data_igt |>
-    select(-all_of(disease_vec)) |> 
-    select(-any_of(metadata_cols))
-  
-  if (disease %in% c("Obesity", "Sleep_apnea")) {
+  if (disease %in% c("Obesity")) {
     correct <- c("Age", "Sex")
-    correct_type <- c("numeric", "factor")
   } else {
     correct <- c("Age", "Sex", "BMI")
-    correct_type <- c("numeric", "factor", "numeric")
   }
-  de_res <- do_limma(discovery_cohort, 
-                     metadata |> rename(Disease = disease), 
-                     "Disease", 
-                     case = 1, 
-                     control = 0,
-                     correct = correct,
-                     correct_type = correct_type,
-                     logfc_lim = 0,
-                     top_up_prot = 3,
-                     top_down_prot = 0)
+  de_res <- hd_de_limma(obj_igt, variable = disease, case = disease, correct = correct) |> 
+    hd_plot_volcano()
+  
+  de_res[["de_res"]] <- de_res$de_res |> select(-all_of(disease))
+  
+  return(de_res)
 })
 
 names(res_igt) <- disease_vec
@@ -79,7 +74,7 @@ names(res_igt) <- disease_vec
 
 ```{r}
 de_all_igt <- lapply(disease_vec, function(disease) {
-    de_res <- res_igt[[disease]]$de_results |> mutate(Disease = disease)
+    de_res <- res_igt[[disease]]$de_res |> mutate(Disease = disease)
   })
 de_all_igt <- bind_rows(de_all_igt)
 ```
@@ -98,27 +93,17 @@ names(volcanos_all_igt) <- disease_vec
 res_scapis <- lapply(disease_vec, function(disease) {
   print(paste(disease, "Case:"))
   
-  discovery_cohort <- data_scapis |>
-    select(-all_of(disease_vec)) |> 
-    select(-any_of(metadata_cols))
-  
-  if (disease %in% c("Obesity", "Sleep_apnea")) {
+  if (disease %in% c("Obesity")) {
     correct <- c("Age", "Sex")
-    correct_type <- c("numeric", "factor")
   } else {
     correct <- c("Age", "Sex", "BMI")
-    correct_type <- c("numeric", "factor", "numeric")
   }
-  de_res <- do_limma(discovery_cohort, 
-                     metadata |> rename(Disease = disease), 
-                     "Disease", 
-                     case = 1, 
-                     control = 0,
-                     correct = correct,
-                     correct_type = correct_type,
-                     logfc_lim = 0,
-                     top_up_prot = 3,
-                     top_down_prot = 0)
+  de_res <- hd_de_limma(obj_scapis, variable = disease, case = disease, correct = correct) |> 
+    hd_plot_volcano()
+  
+  de_res[["de_res"]] <- de_res$de_res |> select(-all_of(disease))
+  
+  return(de_res)
 })
 
 names(res_scapis) <- disease_vec
@@ -126,7 +111,7 @@ names(res_scapis) <- disease_vec
 
 ```{r}
 de_all_scapis <- lapply(disease_vec, function(disease) {
-    de_res <- res_scapis[[disease]]$de_results |> mutate(Disease = disease)
+    de_res <- res_scapis[[disease]]$de_res |> mutate(Disease = disease)
   })
 de_all_scapis <- bind_rows(de_all_scapis)
 ```
@@ -146,6 +131,11 @@ names(volcanos_all_scapis) <- disease_vec
 ```{r}
 barplot_data <- de_all_igt |>
   bind_rows() |>
+  mutate(sig = case_when(
+    adj.P.Val > 0.05 ~ "not significant",
+    logFC > 0 & adj.P.Val < 0.05 ~ "significant up",
+    logFC < 0 & adj.P.Val < 0.05 ~ "significant down"
+  )) |>
   mutate(sig = factor(sig, levels = c("not significant", "significant down", "significant up"))) |>
   group_by(Disease, sig) |>
   summarise(Count = n()) |>
@@ -165,10 +155,10 @@ barplot_data |>
   ggplot(aes(x = Count, y = reorder(Disease, sum), fill = sig)) +
   geom_bar(stat = "identity", position = "stack") +
   labs(x = "Number of proteins", y = "", fill = "Significance") +
-  theme_hpa(angled = T) +
+  theme_hd(angled = T) +
   theme(legend.position = "top",
         legend.title = element_text(face = "bold")) +
-  scale_fill_hpa("diff_exp") +
+  scale_fill_hd("diff_exp") +
   scale_x_continuous(limits=c(0, 1500), breaks=c(0, 1500))
     
 ```
@@ -176,14 +166,12 @@ barplot_data |>
 ## Top proteins boxplots
 
 ```{r}
-disease_palette_boxplot <- c("Obesity" = "#E7662B", 
-                             "IGT" = "#836879", 
+disease_palette_boxplot <- c("Obesity" = "#E7662B",
                              "T2D" = "#321433",
                              "MS" = "#08585A", 
                              "MASLD" = "#FFD321", 
                              "Carotid_plaque" = "#E8A29A", 
-                             "CAC" = "#9E0142", 
-                             "Sleep_apnea" = "#A6CEE3",
+                             "CAC" = "#9E0142",
                              "Other Disease" = "grey70",
                              "Healthy" = "grey90")
 
@@ -193,13 +181,15 @@ top_proteins <- de_all_igt |>
   arrange(Disease, desc(logFC)) |>
   slice_head(n = 3) |> 
   ungroup() |> 
-  rename(Protein = Assay)
+  rename(Protein = Feature)
 
 top_proteins_vec <- top_proteins |> 
   pull(Protein)
 
 plot_data <- data_igt |> 
+  left_join(metadata_igt |> select(DAid, all_of(disease_vec)), by = "DAid") |>
   select(DAid, all_of(disease_vec), all_of(top_proteins_vec)) |> 
+  mutate(across(all_of(c("Obesity", "MS", "MASLD", "CAC", "Carotid_plaque", "T2D")), ~ ifelse(. == "0", 0, 1))) |>
   pivot_longer(cols = -c(DAid, disease_vec), names_to = "Protein", values_to = "Value") |> 
   left_join(top_proteins |> select(Protein, Disease) |> unique(), 
             by = "Protein", 
@@ -211,10 +201,9 @@ plot_data <- data_igt |>
     Disease == "MS" ~ MS,
     Disease == "MASLD" ~ MASLD,
     Disease == "Carotid_plaque" ~ Carotid_plaque,
-    Disease == "IGT" ~ IGT,
     TRUE ~ NA_real_
   )) |> 
-  mutate(Any_disease = Obesity + CAC + T2D + MS + MASLD + Carotid_plaque + IGT) |> 
+  mutate(Any_disease = Obesity + CAC + T2D + MS + MASLD + Carotid_plaque) |> 
   mutate(Disease_Value = case_when(
     Disease_Value == 1 ~ Disease,
     Any_disease == 0 ~ "Healthy",
@@ -234,22 +223,20 @@ plot_data |>
   scale_fill_manual(values = disease_palette_boxplot) +
   facet_wrap(~Disease_protein, scales = "free", nrow = 3) +
   labs(x = "", y = "") +
-  theme_hpa() + 
+  theme_hd() + 
   theme(legend.position = "none",
-        axis.text.x = element_text(angle = 45, hjust = 1))
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
 ```
 
 ## Top-proteins radar plots
 
 ```{r}
-disease_palette_boxplot <- c("Obesity" = "#E7662B", 
-                             "IGT" = "#836879", 
+disease_palette_boxplot <- c("Obesity" = "#E7662B",
                              "T2D" = "#321433",
                              "MS" = "#08585A", 
                              "MASLD" = "#FFD321", 
                              "Carotid_plaque" = "#E8A29A", 
-                             "CAC" = "#9E0142", 
-                             "Sleep_apnea" = "#A6CEE3",
+                             "CAC" = "#9E0142",
                              "Other Disease" = "grey70",
                              "Healthy" = "grey90")
 
@@ -259,13 +246,15 @@ top_proteins <- de_all_igt |>
   arrange(Disease, desc(logFC)) |>
   slice_head(n = 8) |> 
   ungroup() |> 
-  rename(Protein = Assay)
+  rename(Protein = Feature)
 
 top_proteins_vec <- top_proteins |> 
   pull(Protein)
 
 radar_data <- data_igt |> 
+  left_join(metadata_igt |> select(DAid, all_of(disease_vec)), by = "DAid") |>
   select(DAid, all_of(disease_vec), all_of(top_proteins_vec)) |> 
+  mutate(across(all_of(c("Obesity", "MS", "MASLD", "CAC", "Carotid_plaque", "T2D")), ~ ifelse(. == "0", 0, 1))) |>
   pivot_longer(cols = -c(DAid, disease_vec), names_to = "Protein", values_to = "Value") |> 
   left_join(top_proteins |> select(Protein, Disease) |> unique(), 
             by = "Protein", 
@@ -277,10 +266,9 @@ radar_data <- data_igt |>
     Disease == "MS" ~ MS,
     Disease == "MASLD" ~ MASLD,
     Disease == "Carotid_plaque" ~ Carotid_plaque,
-    Disease == "IGT" ~ IGT,
     TRUE ~ NA_real_
   )) |> 
-  mutate(Any_disease = Obesity + CAC + T2D + MS + MASLD + Carotid_plaque + IGT) |> 
+  mutate(Any_disease = Obesity + CAC + T2D + MS + MASLD + Carotid_plaque) |> 
   mutate(Disease_Value = case_when(
     Disease_Value == 1 ~ Disease,
     Any_disease == 0 ~ "Healthy",
@@ -345,13 +333,13 @@ top_proteins <- de_all_igt |>
   group_by(Disease) |>
   top_n(20, logFC) |> 
   ungroup() |> 
-  pull(Assay)
+  pull(Feature)
 
 de_all_igt |>
-  filter(Assay %in% top_proteins) |>
+  filter(Feature %in% top_proteins) |>
   filter(adj.P.Val < 0.05, logFC > 0.1) |> 
-  select(Disease, Assay, logFC) |> 
-  rename(Protein = Assay) |> 
+  select(Disease, Feature, logFC) |> 
+  rename(Protein = Feature) |> 
   pivot_wider(names_from = Disease, values_from = logFC) |>
   mutate(across(everything(), ~ replace_na(., 0))) |> 
   pivot_longer(cols = -Protein, names_to = "Disease", values_to = "logFC") |> 
@@ -372,8 +360,8 @@ Stricter filtering.
 de_all_igt |> 
   filter(adj.P.Val < 0.05, logFC > 0.5) |> 
   arrange(desc(logFC)) |> 
-  select(Disease, Assay, logFC) |> 
-  rename(Protein = Assay) |> 
+  select(Disease, Feature, logFC) |> 
+  rename(Protein = Feature) |> 
   pivot_wider(names_from = Disease, values_from = logFC) |>
   mutate(across(everything(), ~ replace_na(., 0))) |> 
   pivot_longer(cols = -Protein, names_to = "Disease", values_to = "logFC") |> 
@@ -391,28 +379,26 @@ de_all_igt |>
 ## Annotate proteins with LASSO importance
 
 ```{r}
-lasso_onlyproteins_features <- readRDS("results/models_results/lasso_onlyproteins_features.RData")
-lasso_onlyproteins <- readRDS("results/models/lasso_binary_onlyproteins.RData")
+lasso_features <- readRDS("results/models_results/lasso_features_de.RData")
+lasso <- readRDS("results/models/lasso_binary_de.RData")
 ```
 
 Binary annotation of proteins with importance > 30.
 
 ```{r}
-disease_palette_heatmap <- list(Obesity = c("0" = "white", "1" = "#E7662B"), 
-                                IGT = c("0" = "white", "1" = "#836879"), 
-                                T2D = c("0" = "white", "1" = "#321433"),
-                                MS = c("0" = "white", "1" = "#08585A"), 
-                                MASLD = c("0" = "white", "1" = "#FFD321"), 
-                                Carotid_plaque = c("0" = "white", "1" = "#E8A29A"), 
-                                CAC = c("0" = "white", "1" = "#9E0142"),
-                                Sleep_apnea = c("0" = "white", "1" = "#A6CEE3"))
+disease_palette_heatmap <- list(Obesity = c("0" = "white", "Obesity" = "#E7662B"),
+                                T2D = c("0" = "white", "T2D" = "#321433"),
+                                MS = c("0" = "white", "MS" = "#08585A"), 
+                                MASLD = c("0" = "white", "MASLD" = "#FFD321"), 
+                                Carotid_plaque = c("0" = "white", "Carotid_plaque" = "#E8A29A"), 
+                                CAC = c("0" = "white", "CAC" = "#9E0142"))
 
-binary_disease_cols <- lasso_onlyproteins_features |> 
-  filter(Scaled_Importance > 30) |> 
+binary_disease_cols <- lasso_features |> 
+  filter(Scaled_Importance > 0.3) |> 
   select(-Importance, -Sign) |> 
   pivot_wider(names_from = Disease, values_from = Scaled_Importance) |> 
   mutate(across(where(is.numeric), ~ ifelse(is.na(.), 0, 1))) |> 
-  rename(Protein = Variable)
+  rename(Protein = Feature)
 
 top_proteins <- de_all_igt |> 
   filter(adj.P.Val < 0.05, logFC > 0.1) |> 
@@ -420,13 +406,13 @@ top_proteins <- de_all_igt |>
   group_by(Disease) |>
   top_n(20, logFC) |> 
   ungroup() |> 
-  pull(Assay)
+  pull(Feature)
 
 de_all_igt |>
-  filter(Assay %in% top_proteins) |>
+  filter(Feature %in% top_proteins) |>
   filter(adj.P.Val < 0.05, logFC > 0.1) |> 
-  select(Disease, Assay, logFC) |> 
-  rename(Protein = Assay) |> 
+  select(Disease, Feature, logFC) |> 
+  rename(Protein = Feature) |> 
   pivot_wider(names_from = Disease, values_from = logFC) |>
   mutate(across(everything(), ~ replace_na(., 0))) |> 
   pivot_longer(cols = -Protein, names_to = "Disease", values_to = "logFC") |> 
@@ -437,7 +423,7 @@ de_all_igt |>
     columns = Protein,
     values = logFC,
     colors = c("white", "red4"),
-    annotation_col = c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC"),
+    annotation_col = c("Obesity", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC"),
     annotation_colors = disease_palette_heatmap,
     annotation_legend = FALSE,
     cluster_rows = TRUE,
@@ -453,20 +439,18 @@ Metabolic syndrome is very interesting as the features with more than 50% (excep
 
 ```{r}
 disease_palette_heatmap <- list(Obesity = c("0" = "white", "1" = "#E7662B"), 
-                                IGT = c("0" = "white", "1" = "#836879"), 
                                 T2D = c("0" = "white", "1" = "#321433"),
                                 MS = c("0" = "white", "1" = "#08585A"), 
                                 MASLD = c("0" = "white", "1" = "#FFD321"), 
                                 Carotid_plaque = c("0" = "white", "1" = "#E8A29A"), 
-                                CAC = c("0" = "white", "1" = "#9E0142"),
-                                Sleep_apnea = c("0" = "white", "1" = "#A6CEE3"))
+                                CAC = c("0" = "white", "1" = "#9E0142"))
 
-binary_disease_cols <- lasso_onlyproteins_features |> 
+binary_disease_cols <- lasso_features |> 
   filter(Scaled_Importance > 0) |> 
   select(-Importance, -Sign) |> 
   pivot_wider(names_from = Disease, values_from = Scaled_Importance) |> 
   mutate(across(everything(), ~ replace_na(., 0))) |> 
-  rename(Protein = Variable)
+  rename(Protein = Feature)
 
 top_proteins <- de_all_igt |> 
   filter(adj.P.Val < 0.05, logFC > 0.1) |> 
@@ -474,13 +458,13 @@ top_proteins <- de_all_igt |>
   group_by(Disease) |>
   top_n(20, logFC) |> 
   ungroup() |> 
-  pull(Assay)
+  pull(Feature)
 
 de_all_igt |>
-  filter(Assay %in% top_proteins) |>
+  filter(Feature %in% top_proteins) |>
   filter(adj.P.Val < 0.05, logFC > 0.1) |> 
-  select(Disease, Assay, logFC) |> 
-  rename(Protein = Assay) |> 
+  select(Disease, Feature, logFC) |> 
+  rename(Protein = Feature) |> 
   pivot_wider(names_from = Disease, values_from = logFC) |>
   mutate(across(everything(), ~ replace_na(., 0))) |> 
   pivot_longer(cols = -Protein, names_to = "Disease", values_to = "logFC") |> 
@@ -491,7 +475,7 @@ de_all_igt |>
     columns = Protein,
     values = logFC,
     colors = c("white", "red4"),
-    annotation_col = c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC"),
+    annotation_col = c("Obesity", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC"),
     annotation_colors = disease_palette_heatmap,
     cluster_rows = TRUE,
     cluster_cols = TRUE,
@@ -503,12 +487,8 @@ de_all_igt |>
 ## Validation analysis
 
 ```{r}
-disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC")
-```
-
-```{r}
 upreg_proteins_igt <- de_all_igt |> 
-  select(Assay, Disease, logFC, adj.P.Val) |> 
+  select(Feature, Disease, logFC, adj.P.Val) |> 
   filter(logFC > 0, adj.P.Val < 0.05) |>
   arrange(desc(logFC)) |> 
   group_by(Disease) |>
@@ -524,12 +504,12 @@ for (i in seq_along(disease_vec)) {
   
   p <- upreg_proteins_igt |> 
     filter(Disease == disease) |> 
-    ggplot(aes(x = logFC, y = fct_reorder(Assay, logFC), color = Disease)) +
-    geom_segment(aes(x = 0, xend = logFC, y = Assay, yend = Assay)) +
+    ggplot(aes(x = logFC, y = fct_reorder(Feature, logFC), color = Disease)) +
+    geom_segment(aes(x = 0, xend = logFC, y = Feature, yend = Feature)) +
     geom_point(size = 4) +
     #geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
     scale_color_manual(values = disease_palette) +
-    theme_hpa() +
+    theme_hd() +
     theme(legend.position = "none", plot.margin = margin(2, 0, 2, 0)) +
     xlim(0, 1.5) +
     labs(y = element_blank(), title = disease)
@@ -560,15 +540,15 @@ for (i in seq_along(disease_vec)) {
   disease <- disease_vec[i]
   
   p <- upreg_proteins_igt |> 
-    left_join(de_all_scapis |> select(Assay, Disease, logFC, adj.P.Val), 
-              by = c("Assay", "Disease")) |>
+    left_join(de_all_scapis |> select(Feature, Disease, logFC, adj.P.Val), 
+              by = c("Feature", "Disease")) |>
     filter(Disease == disease) |> 
-    ggplot(aes(x = logFC.y, y = fct_reorder(Assay, logFC.x), color = Disease)) +
-    geom_segment(aes(x = 0, xend = logFC.y, y = Assay, yend = Assay)) +
+    ggplot(aes(x = logFC.y, y = fct_reorder(Feature, logFC.x), color = Disease)) +
+    geom_segment(aes(x = 0, xend = logFC.y, y = Feature, yend = Feature)) +
     geom_point(size = 4) +
     #geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
     scale_color_manual(values = disease_palette) +
-    theme_hpa() +
+    theme_hd() +
     theme(legend.position = "none", plot.margin = margin(2, 0, 2, 0)) +
     xlim(0, 1.5) +
     labs(y = element_blank(), title = disease) +
@@ -596,30 +576,29 @@ combined_plot_scapis
 ```
 
 ```{r}
-lasso_onlyproteins_features <- readRDS("results/models_results/lasso_onlydeproteins_features_depanel.RData")
 plots <- list()
 
 for (i in seq_along(disease_vec)) {
   disease <- disease_vec[i]
   
   p <- upreg_proteins_igt |> 
-    left_join(lasso_onlyproteins_features |> 
-                rename(Assay = Variable) |> 
+    left_join(lasso_features |> 
                 mutate(Scaled_Importance = case_when(
                   Sign == "POS" ~ Scaled_Importance,
                   Sign == "NEG" ~ -Scaled_Importance,
                   TRUE ~ 0
                 )) |> 
-                select(Assay, Disease, Scaled_Importance), 
-              by = c("Assay", "Disease")) |>
+                select(Feature, Disease, Scaled_Importance), 
+              by = c("Feature", "Disease")) |>
     filter(Disease == disease) |> 
-    ggplot(aes(x = Scaled_Importance, y = fct_reorder(Assay, logFC), fill = Disease)) +
+    ggplot(aes(x = Scaled_Importance, y = fct_reorder(Feature, logFC), fill = Disease)) +
     geom_col() +
     geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
     scale_fill_manual(values = disease_palette) +
-    theme_hpa() +
+    labs(title = disease) +
+    theme_hd() +
     theme(legend.position = "none", plot.margin = margin(2, 0, 2, 0)) +
-    xlim(-100, 100) +
+    xlim(-1, 1) +
     theme(axis.line.y = element_blank(),
           axis.title.y = element_blank(), 
           axis.text.y = element_blank(), 
@@ -640,7 +619,7 @@ for (i in seq_along(disease_vec)) {
 }
 
 combined_plot_ml <- wrap_plots(plots, ncol = 1) + 
-  plot_annotation(title = 'LASSO model trained on IGTM') &
+  plot_annotation(title = 'LASSO model') &
   theme(plot.title = element_text(hjust = 0.5, face = "bold"))
 combined_plot_ml
 ```
@@ -652,20 +631,21 @@ for (i in seq_along(disease_vec)) {
   disease <- disease_vec[i]
   print(disease)
   p <- upreg_proteins_igt |> 
-    left_join(de_all_scapis |> select(Assay, Disease, logFC, adj.P.Val), 
-              by = c("Assay", "Disease")) |>
-    left_join(lasso_onlyproteins_features |> filter(Disease == disease) |> rename(Assay = Variable), 
-              by = c("Assay", "Disease")) |> 
+    left_join(de_all_scapis |> select(Feature, Disease, logFC, adj.P.Val), 
+              by = c("Feature", "Disease")) |>
+    left_join(lasso_features |> filter(Disease == disease), 
+              by = c("Feature", "Disease")) |> 
     filter(Disease == disease) |> 
     mutate(Scaled_Importance = ifelse(is.na(Scaled_Importance), 0, Scaled_Importance)) |>
     mutate(Validate = ifelse(logFC.y > 0 & logFC.x > 0 & Scaled_Importance > 0, 1, 0)) |>
     mutate(Validate = as.factor(Validate)) |> 
-    ggplot(aes(x = "0", y = fct_reorder(Assay, logFC.x), fill = Validate)) +
+    ggplot(aes(x = "0", y = fct_reorder(Feature, logFC.x), fill = Validate)) +
     geom_point(shape=22, size = 4) +
     scale_fill_manual(values = c("1" = "green", "0" = "red")) +
     scale_x_discrete(breaks=c("0"), labels=c("YES/NO")) + 
-    theme_hpa() +
-    theme(legend.position = "none", plot.margin = margin(2, 0, 2, 0)) +
+    theme_hd() +
+    theme(legend.position = "none", plot.margin = margin(2, 0, 2, 0),
+          axis.text.x = element_text(angle = 0, hjust = 0.5, vjust = 1)) +
     labs(y = element_blank(), title = disease) +
     theme(axis.line.y = element_blank(), 
           axis.title.y = element_blank(), 
@@ -725,34 +705,32 @@ final_plot
 ## Top protein features boxplots
 
 ```{r}
-lasso_onlyproteins_features <- readRDS("results/models_results/lasso_onlydeproteins_features_depanel.RData")
-
 disease_palette_boxplot <- c("Obesity" = "#E7662B", 
-                             "IGT" = "#836879", 
                              "T2D" = "#321433",
                              "MS" = "#08585A", 
                              "MASLD" = "#FFD321", 
                              "Carotid_plaque" = "#E8A29A", 
-                             "CAC" = "#9E0142", 
-                             "Sleep_apnea" = "#A6CEE3",
+                             "CAC" = "#9E0142",
                              "Other Disease" = "grey70",
                              "Healthy" = "grey90")
 
-top_proteins <- lasso_onlyproteins_features |> 
-  mutate(Disease_protein = paste(Disease, Variable, sep = "_")) |> 
+top_proteins <- lasso_features |> 
+  mutate(Disease_protein = paste(Disease, Feature, sep = "_")) |> 
   filter(Disease_protein != "MS_ACY1") |> 
   select(-Disease_protein) |> 
   group_by(Disease) |>
   arrange(Disease, desc(Scaled_Importance)) |>
   slice_head(n = 3) |> 
   ungroup() |> 
-  rename(Protein = Variable)
+  rename(Protein = Feature)
 
 top_proteins_vec <- top_proteins |> 
   pull(Protein)
 
 plot_data <- data_igt |> 
+  left_join(metadata_igt |> select(DAid, all_of(disease_vec)), by = "DAid") |>
   select(DAid, all_of(disease_vec), all_of(top_proteins_vec)) |> 
+  mutate(across(all_of(c("Obesity", "MS", "MASLD", "CAC", "Carotid_plaque", "T2D")), ~ ifelse(. == "0", 0, 1))) |>
   pivot_longer(cols = -c(DAid, disease_vec), names_to = "Protein", values_to = "Value") |> 
   left_join(top_proteins |> select(Protein, Disease) |> unique(), 
             by = "Protein", 
@@ -764,17 +742,16 @@ plot_data <- data_igt |>
     Disease == "MS" ~ MS,
     Disease == "MASLD" ~ MASLD,
     Disease == "Carotid_plaque" ~ Carotid_plaque,
-    Disease == "IGT" ~ IGT,
     TRUE ~ NA_real_
   )) |> 
-  mutate(Any_disease = Obesity + CAC + T2D + MS + MASLD + Carotid_plaque + IGT) |> 
+  mutate(Any_disease = Obesity + CAC + T2D + MS + MASLD + Carotid_plaque) |> 
   mutate(Disease_Value = case_when(
     Disease_Value == 1 ~ Disease,
     Any_disease == 0 ~ "Healthy",
     Disease_Value == 0 ~ "Other Disease",
     TRUE ~ "Control"  # Default case for NA values
-  )) #|> 
-  #mutate(Disease_protein = paste(Disease, Protein, sep = "_"))
+  )) |> 
+  mutate(Disease_protein = paste(Disease, Protein, sep = "_"))
 
 plot_data |> 
   ggplot(aes(x = factor(Disease_Value, 
@@ -785,11 +762,11 @@ plot_data |>
              fill = Disease_Value)) +
   geom_boxplot(position = position_dodge(0.8), outlier.size = 1.5) +
   scale_fill_manual(values = disease_palette_boxplot) +
-  facet_wrap(~factor(Protein, top_proteins_vec), scales = "free", nrow = 3) +
+  facet_wrap(~Disease_protein, scales = "free", nrow = 3) +
   labs(x = element_blank(), y = "NPX") +
-  theme_hpa() + 
+  theme_hd() + 
   theme(legend.position = "none",
-        axis.text.x = element_text(angle = 45, hjust = 1))
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
 ```
 
 ## Top-feature correlation with clinical metadata
@@ -797,12 +774,10 @@ plot_data |>
 ```{r}
 metadata_cols <- c("Sex", "Age", "BMI", "Smoke_status", "MAP_Mean", "HbA1c", "HOMA_IR", "Glucose", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT")
 
-lasso_onlyproteins_features <- readRDS("results/models_results/lasso_onlydeproteins_features_depanel.RData")
-
-top_proteins <- lasso_onlyproteins_features |> 
+top_proteins <- lasso_features |> 
   arrange(Disease, desc(Scaled_Importance)) |>
-  filter(Scaled_Importance > 50) |>
-  rename(Protein = Variable) |> 
+  filter(Scaled_Importance > 0) |>
+  rename(Protein = Feature) |> 
   select(Protein) |> 
   unique() |> 
   pull(Protein)
@@ -812,7 +787,7 @@ protein_data <- data_igt |> select(all_of(top_proteins))
 clinical_data <- metadata |> 
   filter(DAid %in% data_igt$DAid) |>
   arrange(match(DAid, data_igt$DAid)) |> 
-  select(all_of(metadata_cols)) |> 
+  select(all_of(c(metadata_cols, disease_vec))) |> 
   mutate(Smoke_status = case_when(
     Smoke_status == "NEVER" ~ 0,
     Smoke_status == "EX_SMOKER" ~ 1,
@@ -823,7 +798,9 @@ clinical_data <- metadata |>
     Sex == "F" ~ 0,
     Sex == "M" ~ 1,
     TRUE ~ NA_real_
-  ))
+  )) |> 
+  mutate(across(all_of(disease_vec), ~ ifelse(. == "0", 0, 1)))
+  
 
 correlation_matrix <- cor(protein_data, clinical_data, use = "pairwise.complete.obs", method = "spearman")
 
@@ -838,71 +815,8 @@ correlation_matrix <- correlation_matrix[row_order, col_order]
 corrplot(correlation_matrix, 
          method = "square",
          is.corr = FALSE,
-         tl.srt = 45,
+         tl.srt = 90,
          tl.col = "black",
+         col = rev(COL2('RdBu', 200)),
          col.lim = c(-1, 1)) 
-```
-
-## Network with features
-
-```{r}
-lasso_onlyproteins_features <- readRDS("results/models_results/lasso_onlydeproteins_features_depanel.RData")
-
-importance_score <- 1
-
-features_per_model <- lasso_onlyproteins_features |> 
-  filter(Scaled_Importance > importance_score) |> 
-  select(Disease, Variable, Scaled_Importance) |>
-  rename(Overall = Scaled_Importance,
-         Protein = Variable)
-
-node_pal <-
-  c(unique(features_per_model$Protein),unique(features_per_model$Disease)) %>%
-  enframe() %>%
-  mutate(name = value,
-         value = case_when(name %in% disease_vec ~ disease_palette[name],
-                           T ~ "grey70")) %>%
-  deframe()
-
-# Generate network
-set.seed(213)
-features_per_model %>% 
-  as_tbl_graph() %>% 
-  activate(nodes) %>% 
-  mutate(s = case_when(name %in% disease_vec ~ 50,
-                       T ~ 5),
-         text_color = case_when(name %in% disease_vec ~ "white",
-                                T ~ "black")) %>%
-  create_layout(layout = "nicely") %>% 
-  ggraph() + 
-  geom_edge_link(aes(), color = "grey90") +
-  geom_node_point(aes(color = name, 
-                      size = s),
-                  show.legend = F)+
-  geom_node_point(data = . %>% 
-                    filter(name %in% disease_vec) ,
-                  aes(color = name,
-                      size = s),
-                  fill ="grey30",
-                  shape = 21,
-                  stroke = 3,
-                  show.legend = F) +
-  scale_color_manual(values = node_pal) +
-  geom_node_text(data = . %>% 
-                   filter(name %in% disease_vec) ,
-                 aes(label = str_wrap(name, width = 10)),
-                 color = "white",
-                 lineheight = 0.8,
-                 size = 1,
-                 vjust = 0,
-                 hjust = 0.5) +
-  geom_node_text(data = . %>% 
-                   filter(!name %in% disease_vec) ,
-                 aes(label = str_wrap(name, width = 10)),
-                 color = "black",
-                 lineheight = 0.8,
-                 size = 1,
-                 repel = TRUE) +
-  theme_void() + 
-  coord_fixed()
 ```

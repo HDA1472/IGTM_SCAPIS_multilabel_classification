@@ -21,32 +21,44 @@ library(ggplot2)
 # Import data & metadata
 
 ```{r, message = FALSE, results = 'hide'}
-data_scapis <- import_df("data/processed_data/scapis_joined_preprocessed.rda")
-data_igt <- import_df("data/processed_data/igt_joined_preprocessed.rda")
-metadata <- import_df("data/processed_data/metadata_preprocessed.rda")
+data_scapis <- hd_import_data("data/processed_data/scapis_preprocessed.csv")
+data_igt <- hd_import_data("data/processed_data/igt_preprocessed.csv")
+metadata_scapis <- hd_import_data("data/processed_data/metadata_scapis.csv")
+metadata_igt <- hd_import_data("data/processed_data/metadata_igt.csv")
+
+obj_scapis <- hd_initialize(data_scapis, metadata_scapis, is_wide = TRUE)
+obj_igt <- hd_initialize(data_igt, metadata_igt, is_wide = TRUE)
 ```
 
-# Import ML functions
+# Import functions
 
 ```{r}
-source("ml_functions.R")
+# Function to extract model results: Features & AUC.
+extract_model_res <- function(model, diseases) {
+  features_all <- lapply(diseases, function(disease) {
+    features <- model[[disease]]$features |> mutate(Disease = disease)
+  })
+  auc_all <- lapply(diseases, function(disease) {
+    auc <- model[[disease]]$metrics$auc |> as_tibble() |> rename(AUC = value) |> mutate(Disease = disease)
+  })
+  return(list("features" = bind_rows(features_all),
+              "auc" = bind_rows(auc_all)))
+}
 ```
 
 # Binary models - clinical + proteomics
 
 ```{r}
-disease_vec <- c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
+disease_vec <- c("Obesity", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC")
 ```
 
 ```{r}
 disease_palette <- c("Obesity" = "#E7662B", 
-                     "IGT" = "#836879", 
                      "T2D" = "#321433",
                      "MS" = "#08585A", 
                      "MASLD" = "#FFD321", 
                      "Carotid_plaque" = "#E8A29A", 
-                     "CAC" = "#9E0142",
-                     "Sleep_apnea" = "#A6CEE3")
+                     "CAC" = "#9E0142")
 ```
 
 ## LASSO
@@ -56,13 +68,24 @@ Loop over diseases.
 ```{r}
 res <- lapply(disease_vec, function(disease) {
   print(paste(disease, "model:"))
-  cols_to_exclude <- disease_vec |> setdiff(disease)
   
-  discovery_cohort <- data_igt |>
-    select(-all_of(cols_to_exclude))
-
-  model_res <- lasso(discovery_cohort, disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 30)
-  boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
+  split_obj <- hd_split_data(obj_igt, variable = disease, ratio = 0.8)
+  
+  model_res <- hd_model_rreg(split_obj, 
+                             variable = disease, 
+                             case = disease,
+                             cv_sets = 10, 
+                             mixture = 1,
+                             palette = disease_palette,
+                             verbose = TRUE)
+  
+  boxplot <- hd_plot_feature_boxplot(obj_igt, 
+                                     variable = disease, 
+                                     features = model_res$features |> pull(Feature) |> head(9), 
+                                     case = disease,
+                                     points = FALSE,
+                                     palette = disease_palette)
+  
   return(c(model_res, list("boxplot" = boxplot)))
 })
 
@@ -92,16 +115,14 @@ lasso_binary <- readRDS("results/models/lasso_binary.RData")
 ```{r}
 res <- lapply(disease_vec, function(disease) {
   print(paste(disease, "model:"))
-  cols_to_exclude <- disease_vec |> setdiff(disease)
   
-  discovery_cohort <- data_igt |>
-    select(-all_of(cols_to_exclude))
-  
-  validation_cohort <- data_scapis |>
-    select(-all_of(cols_to_exclude)) |> 
-    select(all_of(names(discovery_cohort)))
-  
-  model_res <- validate_model(lasso_binary[[disease]]$final_wf, discovery_cohort, validation_cohort, disease, disease_palette)
+  class(lasso_binary[[disease]]) <- "hd_model"
+  model_res <- hd_model_test(lasso_binary[[disease]], 
+                             obj_igt, 
+                             obj_scapis, 
+                             variable = disease, 
+                             case = disease, 
+                             palette = disease_palette)
   
   return(model_res)
 })
@@ -109,37 +130,57 @@ res <- lapply(disease_vec, function(disease) {
 names(res) <- disease_vec
 ```
 
-```{r}
-auc_all <- lapply(disease_vec, function(disease) {
-    auc <- res[[disease]]$auc |> as_tibble() |> rename(AUC = value) |> mutate(Disease = disease)
-  })
-
-auc_all <- bind_rows(auc_all)
-saveRDS(auc_all, file="results/models_results/lasso_validate_auc.RData")
-```
-
-## Elastic Net
+## LASSO - DE preprocessing
 
 Loop over diseases.
 
 ```{r}
+nfeatures_disease = c("Obesity" = 25, "T2D" = 15, "MS" = 20, "MASLD" = 10, "Carotid_plaque" = 10, "CAC" = 15)
+
 res <- lapply(disease_vec, function(disease) {
   print(paste(disease, "model:"))
-  cols_to_exclude <- disease_vec |> setdiff(disease)
   
-  discovery_cohort <- data_igt |>
-    select(-all_of(cols_to_exclude))
-
-  model_res <- elasticnet(discovery_cohort, disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 50)
-  boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
-  return(c(model_res, list("boxplot" = boxplot)))
+  split_obj <- hd_split_data(obj_igt, variable = disease, ratio = 0.8)
+  
+  daids <- split_obj$train_data |> pull(DAid)
+  
+  obj_med <- hd_initialize(data_igt |> filter(DAid %in% daids), metadata_igt, is_wide = TRUE)
+  
+  de_results <- hd_de_limma(obj_med, variable = disease, case = disease)
+  selected_features <- de_results$de_res |> 
+    filter(adj.P.Val < 0.05) |> 
+    arrange(desc(logFC)) |> 
+    pull(Feature) |> 
+    head(nfeatures_disease[[disease]])
+  
+  split_obj[["train_data"]] <- split_obj[["train_data"]] |> 
+    select(DAid, all_of(c(disease, selected_features)))
+  split_obj[["test_data"]] <- split_obj[["test_data"]] |> 
+    select(DAid, all_of(c(disease, selected_features)))
+  
+  model_res <- hd_model_rreg(split_obj, 
+                             variable = disease, 
+                             case = disease,
+                             cv_sets = 10, 
+                             mixture = 1,
+                             palette = disease_palette,
+                             verbose = TRUE)
+  
+  boxplot <- hd_plot_feature_boxplot(obj_igt, 
+                                     variable = disease, 
+                                     features = model_res$features |> pull(Feature) |> head(9), 
+                                     case = disease,
+                                     points = FALSE,
+                                     palette = disease_palette)
+  
+  return(c(model_res, list("boxplot" = boxplot, "de_features" = selected_features)))
 })
 
 names(res) <- disease_vec
 ```
 
 ```{r}
-saveRDS(res, file="results/models/elasticnet_binary.RData")
+saveRDS(res, file="results/models/lasso_binary_de.RData")
 ```
 
 ```{r}
@@ -148,142 +189,34 @@ res_all <- extract_model_res(res, disease_vec)
 features <- res_all$features
 auc <- res_all$auc
 
-saveRDS(features, file="results/models_results/elasticnet_features.RData")
-saveRDS(auc, file="results/models_results/elasticnet_auc.RData")
-```
-
-## Random Forest
-
-Loop over diseases.
-
-```{r}
-res <- lapply(disease_vec, function(disease) {
-  print(paste(disease, "model:"))
-  cols_to_exclude <- disease_vec |> setdiff(disease)
-  
-  discovery_cohort <- data_igt |>
-    select(-all_of(cols_to_exclude))
-
-  model_res <- rf(discovery_cohort, disease, cv_sets = 5, cor_threshold = 0.9, grid_size = 60)
-  boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
-  return(c(model_res, list("boxplot" = boxplot)))
-})
-
-names(res) <- disease_vec
-```
-
-```{r}
-saveRDS(res, file="results/models/rf_binary_1.RData")
-```
-
-```{r}
-res_all <- extract_model_res(res, disease_vec)
-
-features <- res_all$features
-auc <- res_all$auc
-
-saveRDS(features, file="results/models_results/rf_features.RData")
-saveRDS(auc, file="results/models_results/rf_auc.RData")
-```
-
-# Binary models - only proteomics
-
-```{r}
-metadata_cols <- c("Sex", "Age", "Smoke_status", "MAP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT")
-```
-
-## LASSO
-
-Loop over diseases.
-
-```{r}
-res <- lapply(disease_vec, function(disease) {
-  print(paste(disease, "model:"))
-  cols_to_exclude <- disease_vec |> setdiff(disease)
-  
-  discovery_cohort <- data_igt |>
-    select(-all_of(cols_to_exclude)) |> 
-    select(-any_of(metadata_cols))
-
-  model_res <- lasso(discovery_cohort, disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 30)
-  boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
-  return(c(model_res, list("boxplot" = boxplot)))
-})
-
-names(res) <- disease_vec
-```
-
-```{r}
-saveRDS(res, file="results/models/lasso_binary_onlyproteins.RData")
-```
-
-```{r}
-res_all <- extract_model_res(res, disease_vec)
-
-features <- res_all$features
-auc <- res_all$auc
-
-saveRDS(features, file="results/models_results/lasso_onlyproteins_features.RData")
-saveRDS(auc, file="results/models_results/lasso_onlyproteins_auc.RData")
-```
-
-## LASSO after DE
-
-Loop over diseases.
-
-```{r}
-nfeatures_disease = c("Obesity" = 25, "IGT" = 25, "T2D" = 15, "MS" = 20, "MASLD" = 10, "Carotid_plaque" = 10, "CAC" = 15, "Sleep_apnea" = 20)
-
-res <- lapply(disease_vec, function(disease) {
-  print(paste(disease, "model:"))
-  cols_to_exclude <- disease_vec |> setdiff(disease)
-  
-  discovery_cohort <- data_igt |>
-    select(-all_of(cols_to_exclude)) |> 
-    select(-any_of(metadata_cols))
-
-  model_res <- lasso_de(discovery_cohort, metadata, disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 30, ntop=nfeatures_disease[[disease]])
-  boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
-  return(c(model_res, list("boxplot" = boxplot)))
-})
-
-names(res) <- disease_vec
-```
-
-```{r}
-saveRDS(res, file="results/models/lasso_binary_onlydeproteins_depanel.RData")
-```
-
-
-```{r}
-res_all <- extract_model_res(res, disease_vec)
-
-features <- res_all$features
-auc <- res_all$auc
-
-saveRDS(features, file="results/models_results/lasso_onlydeproteins_features_depanel.RData")
-saveRDS(auc, file="results/models_results/lasso_onlydeproteins_auc_depanel.RData")
+saveRDS(features, file="results/models_results/lasso_features_de.RData")
+saveRDS(auc, file="results/models_results/lasso_auc_de.RData")
 ```
 
 ### Validate on SCAPIS
 
 ```{r}
-lasso_binary_onlydeproteins <- readRDS("results/models/lasso_binary_onlydeproteins_depanel.RData")
+lasso_binary_de <- readRDS("results/models/lasso_binary_de.RData")
 ```
 
 ```{r}
 res <- lapply(disease_vec, function(disease) {
   print(paste(disease, "model:"))
-  cols_to_exclude <- disease_vec |> setdiff(disease)
   
-  discovery_cohort <- data_igt |>
-    select(-all_of(cols_to_exclude))
+  obj_igt_med <- obj_igt
+  obj_igt_med[["data"]] <- obj_igt_med[["data"]] |> 
+    select(DAid, all_of(lasso_binary_de[[disease]]$de_features))
+  obj_scapis_med <- obj_scapis
+  obj_scapis_med[["data"]] <- obj_scapis_med[["data"]] |> 
+    select(DAid, all_of(lasso_binary_de[[disease]]$de_features))
   
-  validation_cohort <- data_scapis |>
-    select(-all_of(cols_to_exclude)) |> 
-    select(all_of(names(discovery_cohort)))
-  
-  model_res <- validate_model(lasso_binary_onlydeproteins[[disease]]$final_wf, discovery_cohort, validation_cohort, disease, disease_palette)
+  class(lasso_binary_de[[disease]]) <- "hd_model"
+  model_res <- hd_model_test(lasso_binary_de[[disease]], 
+                             obj_igt_med, 
+                             obj_scapis_med, 
+                             variable = disease, 
+                             case = disease, 
+                             palette = disease_palette)
   
   return(model_res)
 })
@@ -292,196 +225,14 @@ names(res) <- disease_vec
 ```
 
 ```{r}
+saveRDS(res, file="results/models/lasso_binary_de_validated.RData")
+
 auc_all <- lapply(disease_vec, function(disease) {
-    auc <- res[[disease]]$auc |> as_tibble() |> rename(AUC = value) |> mutate(Disease = disease)
+    auc <- res[[disease]]$test_metrics$auc |> as_tibble() |> rename(AUC = value) |> mutate(Disease = disease)
   })
 
 auc_all <- bind_rows(auc_all)
-saveRDS(auc_all, file="results/models_results/lasso_validate_auc.RData")
-```
-
-# Binary models - only clinical
-
-```{r}
-metadata_cols <- c("Sex", "Age", "Smoke_status", "MAP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT")
-```
-
-## LASSO
-
-Loop over diseases.
-
-```{r}
-res <- lapply(disease_vec, function(disease) {
-  print(paste(disease, "model:"))
-  
-  discovery_cohort <- data_igt |>
-    select(DAid, all_of(c(disease, metadata_cols)))
-
-  model_res <- lasso(discovery_cohort, disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 30)
-  boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
-  return(c(model_res, list("boxplot" = boxplot)))
-})
-
-names(res) <- disease_vec
-```
-
-```{r}
-saveRDS(res, file="results/models/lasso_binary_onlyclinical.RData")
-```
-
-```{r}
-res_all <- extract_model_res(res, disease_vec)
-
-features <- res_all$features
-auc <- res_all$auc
-
-saveRDS(features, file="results/models_results/lasso_onlyclinical_features.RData")
-saveRDS(auc, file="results/models_results/lasso_onlyclinical_auc.RData")
-```
-
-# Binary models - diseases + clinical + proteomics
-
-## LASSO
-
-Loop over diseases.
-
-```{r}
-res <- lapply(disease_vec, function(disease) {
-  print(paste(disease, "model:"))
-
-  model_res <- lasso(data_igt, disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 30, binary_cols = disease_vec)
-  boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
-  return(c(model_res, list("boxplot" = boxplot)))
-})
-
-names(res) <- disease_vec
-```
-
-```{r}
-saveRDS(res, file="results/models/lasso_binary_diseases.RData")
-```
-
-```{r}
-res_all <- extract_model_res(res, disease_vec)
-
-features <- res_all$features
-auc <- res_all$auc
-
-saveRDS(features, file="results/models_results/lasso_diseases_features.RData")
-saveRDS(auc, file="results/models_results/lasso_diseases_auc.RData")
-```
-
-# Binary models - diseases + proteomics
-
-```{r}
-metadata_cols <- c("Sex", "Age", "Smoke_status", "MAP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT")
-```
-
-## LASSO
-
-Loop over diseases.
-
-```{r}
-res <- lapply(disease_vec, function(disease) {
-  print(paste(disease, "model:"))
-
-  model_res <- lasso(data_igt |> select(-any_of(metadata_cols)), disease, cv_sets = 10, cor_threshold = 0.9, grid_size = 30, binary_cols = disease_vec)
-  boxplot <- plot_protein_boxplot(data_igt, disease, model_res$features, points = FALSE)
-  return(c(model_res, list("boxplot" = boxplot)))
-})
-
-names(res) <- disease_vec
-```
-
-```{r}
-saveRDS(res, file="results/models/lasso_binary_diseases_onlyproteins.RData")
-```
-
-```{r}
-res_all <- extract_model_res(res, disease_vec)
-
-features <- res_all$features
-auc <- res_all$auc
-
-saveRDS(features, file="results/models_results/lasso_diseases_onlyproteins_features.RData")
-saveRDS(auc, file="results/models_results/lasso_diseases_onlyproteins_auc.RData")
-```
-
-
-# Binary models - PCs
-
-## LASSO
-
-Loop over diseases.
-
-```{r}
-# heatmap_disease_palette <- list(Obesity = c("0" = "white", "1" = "#A6CEE3"), 
-#                                 IGT = c("0" = "white", "1" = "#836879"), 
-#                                 T2D = c("0" = "white", "1" = "#321433"),
-#                                 MS = c("0" = "white", "1" = "#08585A"), 
-#                                 MASLD = c("0" = "white", "1" = "#FFD321"), 
-#                                 Carotid_plaque = c("0" = "white", "1" = "#E8A29A"), 
-#                                 CAC = c("0" = "white", "1" = "#9E0142"))
-# 
-# pca_res$pca_res |> 
-#   mutate(across(where(is.numeric), ~ (. - min(.)) / (max(.) - min(.)))) |> 
-#   pivot_longer(cols = -DAid, names_to = "PCs", values_to = "Value") |> 
-#   left_join(data_igt |> select(all_of(c("DAid", disease_vec)))) |> 
-#   tidyheatmap(
-#     rows = PCs,
-#     columns = DAid,
-#     values = Value,
-#     colors = c("white", "red4"),
-#     annotation_col = c("Obesity", "IGT", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC"),
-#     annotation_colors = heatmap_disease_palette,
-#     annotation_legend = FALSE,
-#     cluster_rows = TRUE,
-#     cluster_cols = TRUE,
-#     show_colnames = TRUE,
-#     clustering_method = "ward.D2"
-#   )
-```
-
-```{r}
-npcs <- c(100, 120, 140, 160, 180, 200)
-res_pca <- lapply(npcs, function(npc) {
-  print(paste("PCs:", npc))
-  res <- lapply(disease_vec, function(disease) {
-    print(paste(disease, "model:"))
-    cols_to_exclude <- disease_vec |> setdiff(disease)
-    
-    discovery_cohort <- data_igt |>
-      select(-all_of(cols_to_exclude))
-  
-    model_res <- lasso_pca(discovery_cohort, disease, cv_sets = 10, grid_size = 30, npcs = npc)
-    
-    return(c(model_res, list("boxplot" = boxplot)))
-  })
-  
-  names(res) <- disease_vec
-  
-  res_all <- extract_model_res(res, disease_vec)
-  
-  features <- res_all$features
-  auc <- res_all$auc
-  
-  return(auc)
-})
-```
-
-```{r}
-names(res_pca) <- npcs
-
-extract_model_pca_res <- function(model, npcs) {
-  auc_all <- lapply(npcs, function(npc) {
-    auc <- model[[as.character(npc)]] |> mutate(nPC = npc)
-  })
-  return(bind_rows(auc_all))
-}
-
-res_pca_all <- extract_model_pca_res(res_pca, npcs)
-
-saveRDS(res_pca_all, file="results/models_results/lasso_pcs_100_200_auc.RData")
+saveRDS(auc_all, file="results/models_results/lasso_auc_de_validated.RData")
 ```
 
 # Analysis of model results
@@ -491,19 +242,16 @@ saveRDS(res_pca_all, file="results/models_results/lasso_pcs_100_200_auc.RData")
 ```{r}
 lasso_features <- readRDS("results/models_results/lasso_features.RData")
 lasso_auc <- readRDS("results/models_results/lasso_auc.RData")
-lasso_onlyproteins_features <- readRDS("results/models_results/lasso_onlyproteins_features.RData")
-lasso_onlyproteins_auc <- readRDS("results/models_results/lasso_onlyproteins_auc.RData")
-lasso_onlyclinical_features <- readRDS("results/models_results/lasso_onlyclinical_features.RData")
-lasso_onlyclinical_auc <- readRDS("results/models_results/lasso_onlyclinical_auc.RData")
-lasso_diseases_features <- readRDS("results/models_results/lasso_diseases_features.RData")
-lasso_diseases_onlyproteins_features <- readRDS("results/models_results/lasso_diseases_onlyproteins_features.RData")
+lasso_features_de <- readRDS("results/models_results/lasso_features_de.RData")
+lasso_auc_de <- readRDS("results/models_results/lasso_auc_de.RData")
+lasso_auc_test <- readRDS("results/models_results/lasso_auc_validated.RData")
+lasso_auc_de_test <- readRDS("results/models_results/lasso_auc_de_validated.RData")
 ```
 
 ## Top proteins boxplots
 
 ```{r}
-disease_palette_boxplot <- c("Obesity" = "#A6CEE3", 
-                             "IGT" = "#836879", 
+disease_palette_boxplot <- c("Obesity" = "#E7662B",
                              "T2D" = "#321433",
                              "MS" = "#08585A", 
                              "MASLD" = "#FFD321", 
@@ -511,20 +259,23 @@ disease_palette_boxplot <- c("Obesity" = "#A6CEE3",
                              "CAC" = "#9E0142",
                              "Control" = "lightgrey")
 
-top_proteins <- lasso_onlyproteins_features |> 
+top_proteins <- lasso_features_de |> 
   group_by(Disease) |>
   arrange(Disease, desc(Scaled_Importance)) |>
-  slice_head(n = 1) |> 
+  slice_head(n = 3) |> 
   ungroup() |> 
-  filter(Scaled_Importance > 50) |> 
-  rename(Protein = Variable)
+  filter(Scaled_Importance > 0.5) |> 
+  rename(Protein = Feature)
 
 top_proteins_vec <- top_proteins |> 
-  pull(Protein)
+  pull(Protein) |> 
+  unique()
 
 plot_data <- data_igt |> 
+  left_join(metadata_igt |> select(DAid, all_of(disease_vec)), by = "DAid") |>
   select(DAid, all_of(disease_vec), all_of(top_proteins_vec)) |> 
-  pivot_longer(cols = -c(DAid, disease_vec), names_to = "Protein", values_to = "Value") |> 
+  mutate(across(all_of(c("Obesity", "MS", "MASLD", "CAC", "Carotid_plaque", "T2D")), ~ ifelse(. == "0", 0, 1))) |>
+  pivot_longer(cols = -c("DAid", disease_vec), names_to = "Protein", values_to = "Value") |> 
   left_join(top_proteins |> select(Protein, Disease), by = "Protein") |> 
   mutate(Disease_Value = case_when(
     Disease == "Obesity" ~ Obesity,
@@ -533,34 +284,38 @@ plot_data <- data_igt |>
     Disease == "MS" ~ MS,
     Disease == "MASLD" ~ MASLD,
     Disease == "Carotid_plaque" ~ Carotid_plaque,
-    Disease == "IGT" ~ IGT,
     TRUE ~ NA_real_
   )) |> 
+  mutate(Any_disease = Obesity + CAC + T2D + MS + MASLD + Carotid_plaque) |> 
   mutate(Disease_Value = case_when(
     Disease_Value == 1 ~ Disease,
-    Disease_Value == 0 ~ "Control",
+    Any_disease == 0 ~ "Healthy",
+    Disease_Value == 0 ~ "Other Disease",
     TRUE ~ "Control"  # Default case for NA values
-  ))
+  )) |> 
+  mutate(Disease_protein = paste(Disease, Protein, sep = "_"))
 
 plot_data |> 
   ggplot(aes(x = factor(Disease_Value, 
-                        levels = c("Control", unique(Disease[!is.na(Disease_Value)]))), 
+                        levels = c("Healthy", 
+                                   "Other Disease", 
+                                   unique(Disease[!is.na(Disease_Value)]))), 
              y = Value, 
              fill = Disease_Value)) +
   geom_boxplot(position = position_dodge(0.8), outlier.size = 1.5) +
   scale_fill_manual(values = disease_palette_boxplot) +
-  facet_wrap(~Protein, scales = "free") +
+  facet_wrap(~Disease_protein, scales = "free", nrow = 3) +
   labs(x = "", y = "") +
-  theme_hpa()
+  theme_hd() + 
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
 ```
 
-## Proteomics + clinical - discovery vs validation
+## Proteomics - discovery vs validation
 
 ```{r}
-auc_discovery <- readRDS("results/models_results/lasso_onlydeproteins_auc_depanel.RData")
-auc_validation <- readRDS("results/models_results/lasso_validate_auc.RData")
-auc_all <- bind_rows(auc_discovery |> mutate(Set = "Discovery - IGTM"), 
-                     auc_validation |> mutate(Set = "Validation - SCAPIS"))
+auc_all <- bind_rows(lasso_auc_de |> mutate(Set = "Discovery - IGTM"), 
+                     lasso_auc_de_test |> mutate(Set = "Validation - SCAPIS"))
 
 mean_auc <- auc_all |>
   group_by(Disease) |>
@@ -574,88 +329,19 @@ auc_all |>
   geom_text(aes(label = round(AUC, 2)), position = position_dodge(width = 1), vjust = -0.5) +
   scale_fill_manual(values = c("Discovery - IGTM" = "#FA9F99", "Validation - SCAPIS" = "#4DD2D6")) +
   labs(y = "AUC", x = element_blank()) +
-  theme_hpa() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-```
-
-## Proteomics + clinical vs. only proteomics + clinical
-
-We see that the results generally do not change a lot. For T2D, IGT, and MS the AUC is significantly lower and the number of features is higher when using only proteomics, especially the top features (>50% Importance).
-
-Number of features
-
-```{r}
-lasso_features |> 
-  select(Disease, Variable) |> 
-  group_by(Disease) |> 
-  summarise(nFeatures = n_distinct(Variable)) |> 
-  mutate(Predictors = "Combined") |>
-  bind_rows(lasso_onlyproteins_features |> 
-              select(Disease, Variable) |> 
-              group_by(Disease) |> 
-              summarise(nFeatures = n_distinct(Variable)) |> 
-              mutate(Predictors = "Only proteins")) |> 
-  ggplot(aes(x = Disease, y = nFeatures, fill = Predictors)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  geom_text(aes(label = round(nFeatures, 2)), position = position_dodge(width = 1), vjust = -0.5) +
-  scale_fill_manual(values = c("Combined" = "darkblue", "Only proteins" = "red4")) +
-  labs(y = "Number of features") +
-  theme_hpa() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-```
-
-Number of top features
-
-```{r}
-lasso_features |> 
-  filter(Scaled_Importance >= 50) |>
-  select(Disease, Variable) |> 
-  group_by(Disease) |> 
-  summarise(nFeatures = n_distinct(Variable)) |> 
-  mutate(Predictors = "Combined") |>
-  bind_rows(lasso_onlyproteins_features |> 
-              filter(Scaled_Importance >= 50) |>
-              select(Disease, Variable) |> 
-              group_by(Disease) |> 
-              summarise(nFeatures = n_distinct(Variable)) |> 
-              mutate(Predictors = "Only proteins")) |> 
-  ggplot(aes(x = Disease, y = nFeatures, fill = Predictors)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  geom_text(aes(label = round(nFeatures, 2)), position = position_dodge(width = 1), vjust = -0.5) +
-  scale_fill_manual(values = c("Combined" = "darkblue", "Only proteins" = "red4")) +
-  labs(y = "Number of features") +
-  theme_hpa() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-```
-
-AUC
-
-```{r}
-lasso_auc |> 
-  select(Disease, AUC) |> 
-  mutate(Predictors = "Combined") |> 
-  bind_rows(lasso_onlyproteins_auc |> select(Disease, AUC) |> mutate(Predictors = "Only proteins"),
-            lasso_onlyclinical_auc |> select(Disease, AUC) |> mutate(Predictors = "Only clinical")) |> 
-  ggplot(aes(x = Disease, y = AUC, fill = Predictors)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  geom_text(aes(label = round(AUC, 2)), position = position_dodge(width = 1), vjust = -0.5) +
-  scale_fill_manual(values = c("Combined" = "darkblue", "Only proteins" = "red4", "Only clinical" = "green4")) +
-  labs(y = "AUC") +
-  theme_hpa() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  theme_hd() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
 ```
 
 ## Check feature overlap between diseases
 
-### Clinical + proteomics
-
 Filter \>50% Importance.
 
 ```{r}
-lasso_features |> 
-  select(Variable, Disease, Scaled_Importance, Sign) |>
-  rename(Protein = Variable) |> 
-  filter(Scaled_Importance >= 50) |> 
+lasso_features_de |> 
+  select(Feature, Disease, Scaled_Importance, Sign) |>
+  rename(Protein = Feature) |> 
+  filter(Scaled_Importance >= 0.5) |> 
   mutate(Importance = if_else(Sign == "POS", round(Scaled_Importance, 2), -round(Scaled_Importance, 2))) |> 
   select(-Sign, -Scaled_Importance) |> 
   pivot_wider(names_from = Disease, values_from = Importance) |>
@@ -679,10 +365,10 @@ lasso_features |>
 No filter at all.
 
 ```{r}
-disease_list <- lasso_features |> 
-  select(Disease, Variable) |>
+disease_list <- lasso_features_de |> 
+  select(Disease, Feature) |>
   group_by(Disease) |> 
-  summarise(Variable = list(Variable)) |> 
+  summarise(Feature = list(Feature)) |> 
   deframe()
 
 feature_names <- names(disease_list)
@@ -700,152 +386,14 @@ UpSetR::upset(upset,
               sets.bar.color = ordered_colors)
 ```
 
-### Only proteomics
-
-Filter \>50% Importance.
-
-```{r}
-lasso_onlyproteins_features |> 
-  select(Variable, Disease, Scaled_Importance, Sign) |>
-  rename(Protein = Variable) |> 
-  filter(Scaled_Importance >= 50) |> 
-  mutate(Importance = if_else(Sign == "POS", round(Scaled_Importance, 2), -round(Scaled_Importance, 2))) |> 
-  select(-Sign, -Scaled_Importance) |> 
-  pivot_wider(names_from = Disease, values_from = Importance) |>
-  mutate(across(everything(), ~ replace_na(., 0))) |> 
-  pivot_longer(cols = -Protein, names_to = "Disease", values_to = "Importance") |> 
-  left_join(lasso_auc, by = "Disease") |>
-  tidyheatmap(
-    rows = Disease,
-    columns = Protein,
-    values = Importance,
-    colors = c("darkblue", "white", "red4"),
-    annotation_row = c(AUC),
-    cluster_rows = TRUE,
-    cluster_cols = TRUE,
-    legend_breaks = c(-100, -50, 0, 50, 100),
-    legend_labels = c("-100", "-50", "0", "50", "100"),
-    show_colnames = TRUE,
-    clustering_method = "ward.D2")
-```
-
-### Only clinical
-
-No filter at all.
-
-```{r}
-lasso_onlyclinical_features |> 
-  select(Variable, Disease, Scaled_Importance, Sign) |>
-  rename(Protein = Variable) |> 
-  mutate(Importance = if_else(Sign == "POS", round(Scaled_Importance, 2), -round(Scaled_Importance, 2))) |> 
-  select(-Sign, -Scaled_Importance) |> 
-  pivot_wider(names_from = Disease, values_from = Importance) |>
-  mutate(across(everything(), ~ replace_na(., 0))) |> 
-  pivot_longer(cols = -Protein, names_to = "Disease", values_to = "Importance") |> 
-  left_join(lasso_auc, by = "Disease") |>
-  tidyheatmap(
-    rows = Disease,
-    columns = Protein,
-    values = Importance,
-    colors = c("darkblue", "white", "red4"),
-    annotation_row = c(AUC),
-    cluster_rows = TRUE,
-    cluster_cols = TRUE,
-    legend_breaks = c(-100, -50, 0, 50, 100),
-    legend_labels = c("-100", "-50", "0", "50", "100"),
-    show_colnames = TRUE,
-    clustering_method = "ward.D2")
-```
-
 ## Model feature network
 
 ```{r}
-importance_score <- 50
-
-features_per_model <- lasso_diseases_features |> 
-  filter(Scaled_Importance > importance_score) |>
-  group_by(Disease) |> 
-  summarise(Features = list(unique(Variable))) |> 
-  deframe()
-
-shared_features_matrix <- combn(names(features_per_model), 2, function(models) {
-  model1 <- models[1]
-  model2 <- models[2]
-  
-  # Count of shared features between each pair of models
-  shared_features <- length(intersect(features_per_model[[model1]], features_per_model[[model2]]))
-  
-  # Determine edge color
-  bidirectional <- model2 %in% features_per_model[[model1]] && model1 %in% features_per_model[[model2]]
-  unidirectional <- model2 %in% features_per_model[[model1]] || model1 %in% features_per_model[[model2]]
-  
-  edge_color <- if (bidirectional) "#4682B4" else if (unidirectional) "#DB7093" else "lightgrey"
-  
-  # Return a named list
-  list(Model1 = model1, Model2 = model2, SharedFeatures = shared_features, EdgeColor = edge_color)
-}, simplify = FALSE)
-
-# Convert the list of lists to a data frame
-shared_features_df <- map_dfr(shared_features_matrix, ~ as_tibble(.))
-
-# Convert SharedFeatures column to numeric
-shared_features_matrix$SharedFeatures <- as.numeric(shared_features_matrix$SharedFeatures)
-
-node_sizes <- lasso_diseases_features |> 
-  filter(Scaled_Importance >= importance_score) |>
-  group_by(Disease) |> 
-  summarise(TotalFeatures = n())
-```
-
-```{r}
-set.seed(126)
-
-# Create an igraph object
-graph <- graph_from_data_frame(shared_features_df, vertices = node_sizes, directed = FALSE)
-graph <- as_tbl_graph(graph) |> 
-  activate(edges) |> 
-  filter(SharedFeatures > 0)
-
-# Map node sizes to the number of total features, and edge widths to shared features
-ggraph(graph, layout = "fr") +
-  geom_edge_link(aes(width = SharedFeatures, color = EdgeColor), show.legend = TRUE) +
-  geom_node_point(aes(size = TotalFeatures, color = name)) +
-  scale_edge_color_identity() +
-  scale_edge_width_continuous(range = c(0.5, 4)) +
-  scale_size_continuous(range = c(4, 10)) +
-  scale_color_manual(values = disease_palette) +
-  theme_void() +
-  theme(
-    panel.grid = element_blank(),
-    axis.line = element_blank(),
-    axis.ticks = element_blank(),
-    axis.text = element_blank()
-  ) +
-  labs(title = "Feature Sharing Among Models (LASSO >0% Importance)",
-       subtitle = "Node size ~ important features, Edge thickness ~ shared features") +
-  guides(size = guide_legend(title = "Total Features"),
-         edge_width = guide_legend(title = "Shared Features"),
-         color = guide_legend(title = "Disease"))
-
-```
-
-## PCA analysis
-
-```{r}
-lasso_pca_auc <- readRDS("results/models_results/lasso_pcs_20_200_auc.RData")
-lasso_auc <- readRDS("results/models_results/lasso_auc.RData")
-```
-
-```{r}
-lasso_pca_auc |> 
-  ggplot(aes(x = nPC, y = AUC, color = Disease)) +
-  geom_line() +
-  geom_point() +
-  geom_hline(data = lasso_auc, aes(yintercept = AUC), linetype = "dashed") +
-  scale_color_manual(values = disease_palette) +
-  labs(x = "Number of PCs", y = "AUC") +
-  facet_wrap(~Disease) +
-  theme_hpa()
+hd_plot_feature_network(
+  lasso_features_de |> filter(Scaled_Importance >= 0) |> rename(Class = Disease),
+  plot_color = "Scaled_Importance",
+  class_palette = disease_palette
+)
 ```
 
 ## DE feature selection analysis
@@ -877,16 +425,15 @@ lasso_de_all <- bind_rows(lasso_de_all)
 ```
 
 ```{r}
-lasso_onlyproteins_auc <- readRDS("results/models_results/lasso_onlyproteins_auc.RData")
+lasso_auc <- readRDS("results/models_results/lasso_onlyproteins_auc.RData")
 
 lasso_de_all |> 
   ggplot(aes(x = n, y = AUC, color = Disease)) +
   geom_line() +
   geom_point() +
-  geom_hline(data = lasso_onlyproteins_auc, aes(yintercept = AUC), linetype = "dashed") +
+  geom_hline(data = lasso_auc, aes(yintercept = AUC), linetype = "dashed") +
   scale_color_manual(values = disease_palette) +
   labs(x = "Number of selected features", y = "AUC") +
   facet_wrap(~Disease) +
-  theme_hpa()
-
+  theme_hd()
 ```

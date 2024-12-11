@@ -17,12 +17,12 @@ library(corrplot)
 # Import data & metadata
 
 ```{r, message = FALSE, results = 'hide'}
-long_data <- import_df("data/raw_data/IGT_SCAPIS_preprocessed_data.tsv")
+long_data <- hd_import_data("data/raw_data/IGT_SCAPIS_preprocessed_data.tsv")
 
-metadata <- import_df("data/raw_data/IGTM_SCAPIS_metadata_230406.txt")
-metadata_scapis <- import_df("data/raw_data/scapis_metadata_manifest.xlsx")
-metadata_igt <- import_df("data/raw_data/igts_metadata_manifest.xlsx")
-cac_100 <- import_df("data/raw_data/cac_100.csv")
+metadata <- hd_import_data("data/raw_data/IGTM_SCAPIS_metadata_230406.txt")
+metadata_scapis <- hd_import_data("data/raw_data/scapis_metadata_manifest.xlsx")
+metadata_igt <- hd_import_data("data/raw_data/igts_metadata_manifest.xlsx")
+cac_100 <- hd_import_data("data/raw_data/cac_100.csv")
 ```
 
 # Data preprocessing
@@ -39,11 +39,11 @@ igt_DAid <- metadata_igt$DAid |> unique()
 Separate data and make them wide.
 
 ```{r}
-data_scapis <- long_data |> filter(DAid %in% scapis_DAid)
-data_igt <- long_data |> filter(DAid %in% igt_DAid)
+data_scapis <- long_data |> filter(DAid %in% scapis_DAid) |> arrange(DAid, Assay)
+data_igt <- long_data |> filter(DAid %in% igt_DAid) |> arrange(DAid, Assay)
 
-data_scapis <- widen_data(data_scapis)
-data_igt <- widen_data(data_igt)
+data_scapis <- hd_initialize(data_scapis)[["data"]]
+data_igt <- hd_initialize(data_igt)[["data"]]
 ```
 
 See if the DAids of the data match the DAids of the metadata (both Goran's and manifest).
@@ -148,24 +148,24 @@ metadata_preprocessed <- metadata |>
   mutate(Carotid_plaque = if_else(Carotid_plaque == "NOT_APPLICABLE", NA, Carotid_plaque)) |> 
   mutate(across(everything(), ~ ifelse(. == "", NA, .))) |> 
   mutate(MAP_Mean = round(1/3 * SBP_Mean + 2/3 * DBP_Mean, 0),
-         Obesity = if_else(BMI > 30, 1, 0),
-         IGT = if_else(glucose.group %in% c("CGI", "IFG", "IGT", "T2D_new"), 1, 0),
-         T2D = if_else(glucose.group == "T2D_new", 1, 0),
-         Carotid_plaque = if_else(Carotid_plaque %in% c("NO_PLAQUE"), 0, 1),
-         MS = if_else(MS == "YES", 1, 0),
-         MASLD = if_else(MASLD == "YES", 1, 0),
-         CAC = if_else(CAC == "1", 1, 0),
-         Myocardial_infarction = if_else(Myocardial_infarction == "YES", 1, 0),
-         Atrial_fibrillation = if_else(Atrial_fibrillation == "YES", 1, 0),
-         Coronary_artery_intervention = if_else(Coronary_artery_intervention == "YES", 1, 0),
-         Stroke = if_else(Stroke == "YES", 1, 0),
-         COPD = if_else(COPD == "YES", 1, 0),
-         Asthma = if_else(Asthma == "YES", 1, 0),
-         Tuberculosis = if_else(Tuberculosis == "YES", 1, 0),
-         Sleep_apnea = if_else(Sleep_apnea == "YES", 1, 0),
-         Celiac_disease = if_else(Celiac_disease == "YES", 1, 0),
-         Crohn = if_else(Crohn == "YES", 1, 0),
-         Rheumatic_disease = if_else(Rheumatic_disease == "YES", 1, 0))
+         Obesity = if_else(BMI > 30, "Obesity", "0"),
+         #IGT = if_else(glucose.group %in% c("CGI", "IFG", "IGT", "T2D_new"), 1, 0),
+         T2D = if_else(glucose.group == "T2D_new", "T2D", "0"),
+         Carotid_plaque = if_else(Carotid_plaque %in% c("NO_PLAQUE"), "0", "Carotid_plaque"),
+         MS = if_else(MS == "YES", "MS", "0"),
+         MASLD = if_else(MASLD == "YES", "MASLD", "0"),
+         CAC = if_else(CAC == "1", "CAC", "0"),
+         Myocardial_infarction = if_else(Myocardial_infarction == "YES", "Myocardial_infarction", "0"),
+         Atrial_fibrillation = if_else(Atrial_fibrillation == "YES", "Atrial_fibrillation", "0"),
+         Coronary_artery_intervention = if_else(Coronary_artery_intervention == "YES", "Coronary_artery_intervention", "0"),
+         Stroke = if_else(Stroke == "YES", "Stroke", "0"),
+         COPD = if_else(COPD == "YES", "COPD", "0"),
+         Asthma = if_else(Asthma == "YES", "Asthma", "0"),
+         Tuberculosis = if_else(Tuberculosis == "YES", "Tuberculosis", "0"),
+         Sleep_apnea = if_else(Sleep_apnea == "YES", "Sleep_apnea", "0"),
+         Celiac_disease = if_else(Celiac_disease == "YES", "Celiac_disease", "0"),
+         Crohn = if_else(Crohn == "YES", "Crohn", "0"),
+         Rheumatic_disease = if_else(Rheumatic_disease == "YES", "Rheumatic_disease", "0"))
 ```
 
 check if the metadata are similar with the manifest metadata for SCAPIS and IGT. Check for identity in Sex and Age columns.
@@ -234,7 +234,7 @@ All missing values are in 5 (SCAPIS) and 9 (IGT) samples, but still the maximum 
 ## Join data and metadata
 
 ```{r}
-metadata_cols <- c("DAid", "Sex", "Age", "Smoke_status", "MAP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT", "Obesity", "T2D", "IGT", "MS", "MASLD", "Carotid_plaque", "CAC", "Sleep_apnea")
+metadata_cols <- c("DAid", "Sex", "Age", "BMI", "Smoke_status", "MAP_Mean", "HbA1c", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT", "Obesity", "T2D", "MS", "MASLD", "Carotid_plaque", "CAC")
 
 data_scapis_joined <- left_join(data_scapis, 
                                 metadata_preprocessed |> select(all_of(metadata_cols)), 
@@ -258,8 +258,8 @@ metadata_preprocessed |>
   ggplot(aes(x = n, y = Cohort, fill = Sex)) +
   geom_bar(stat = "identity", position = "stack") +
   labs(x = "Number of samples", y = "") +
-  scale_fill_hpa("sex_hpa") + 
-  theme_hpa()
+  scale_fill_hd("sex") + 
+  theme_hd()
 
 metadata_preprocessed |> 
   mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGTM")) |> 
@@ -267,23 +267,21 @@ metadata_preprocessed |>
   ggplot2::ggplot(ggplot2::aes(x = Age, y = Cohort, fill = Cohort)) +
   geom_density_ridges2(quantile_lines = TRUE, alpha = 0.7, quantiles = 2, scale = 1) +
   labs(x = "Age", y = "") +
-  theme_hpa() +
+  theme_hd() +
   theme(legend.position = "none")
 ```
 
 Number of diseases in the 2 datasets.
 
 ```{r}
-disease_cols <- c("Obesity", "MS", "MASLD", "CAC", "Carotid_plaque", "Atrial_fibrillation", "Stroke", "COPD", "Asthma", "Tuberculosis", "Sleep_apnea", "Celiac_disease", "Crohn", "Rheumatic_disease", "T2D", "IGT")  # "Myocardial_infarction", "Coronary_artery_intervention", 
+disease_cols <- c("Obesity", "MS", "MASLD", "CAC", "Carotid_plaque", "Atrial_fibrillation", "Stroke", "COPD", "Asthma", "Tuberculosis", "Sleep_apnea", "Celiac_disease", "Crohn", "Rheumatic_disease", "T2D")  # "Myocardial_infarction", "Coronary_artery_intervention", 
 
 disease_palette <- c("Obesity" = "#E7662B", 
-                     "IGT" = "#836879", 
                      "T2D" = "#321433",
                      "MS" = "#08585A", 
                      "MASLD" = "#FFD321", 
                      "Carotid_plaque" = "#E8A29A", 
-                     "CAC" = "#9E0142",
-                     "Sleep_apnea" = "#A6CEE3")
+                     "CAC" = "#9E0142")
 
 metadata_preprocessed |> 
   mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGTM")) |> 
@@ -297,7 +295,7 @@ metadata_preprocessed |>
   labs(x = "Number of samples", y = "") +
   facet_wrap(~Cohort, scales = "free_y", nrow = 2) +
   scale_fill_manual(values = disease_palette, na.value = "lightgrey") +
-  theme_hpa() +
+  theme_hd() +
   theme(legend.position = "none")
 ```
 
@@ -306,6 +304,7 @@ Check the correlation between the different disease classes. We see a big block.
 ```{r}
 cor_matrix <- metadata_preprocessed |> 
   select(all_of(disease_cols)) |> 
+  mutate(across(everything(), ~ ifelse(. == "0", 0, 1))) |>
   cor(use = "pairwise.complete.obs", method = "spearman") |> 
   round(2)
 
@@ -314,6 +313,7 @@ corrplot(cor_matrix,
          tl.srt = 45,
          tl.col = "black",
          order = "hclust",
+         col = rev(COL2('RdBu', 200)),
          hclust.method = "ward.D2") 
 ```
 
@@ -325,7 +325,8 @@ metadata_preprocessed |>
   pivot_longer(cols = -c("DAid", "Cohort", "Sex", "Age", "BMI"), 
                names_to = "Disease", 
                values_to = "Status") |> 
-  mutate(Status = if_else(is.na(Status), 0, Status)) |>
+  mutate(Status = if_else(is.na(Status), "0", Status)) |>
+  mutate(Status = ifelse(Status == "0", 0, 1)) |>
   tidyheatmap(
     rows = Disease,
     columns = DAid,
@@ -343,10 +344,11 @@ metadata_preprocessed |>
 Correlate other metadata with the diseases. From this plot however sleep apnea and asthma look irrelevant...
 
 ```{r}
-all_metadata_cols <- c("Obesity", "MS", "MASLD", "CAC", "Carotid_plaque", "Sleep_apnea", "IGT", "T2D", "Weight", "BMI", "Waist", "SBP_Mean", "DBP_Mean", "MAP_Mean", "Glucose", "HbA1c", "HOMA_IR", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT", "Sex", "Age")
+all_metadata_cols <- c("Obesity", "MS", "MASLD", "CAC", "Carotid_plaque", "T2D", "Weight", "BMI", "Waist", "SBP_Mean", "DBP_Mean", "MAP_Mean", "Glucose", "HbA1c", "HOMA_IR", "Chol", "LDL", "HDL", "TG", "ALT", "GGT", "Urate", "Crea", "eGFR", "CRP", "Hb", "WBC", "PLT", "Sex", "Age")
 
 cor_matrix <- metadata_preprocessed |> 
   select(all_of(all_metadata_cols)) |> 
+  mutate(across(all_of(c("Obesity", "MS", "MASLD", "CAC", "Carotid_plaque", "T2D")), ~ ifelse(. == "0", 0, 1))) |>
   mutate(Sex = if_else(Sex == "F", 1, 0)) |> 
   cor(use = "pairwise.complete.obs", method = "spearman") |> 
   round(2)
@@ -356,6 +358,7 @@ corrplot(cor_matrix,
          tl.srt = 45,
          tl.col = "black",
          order = "hclust",
+         col = rev(COL2('RdBu', 200)),
          hclust.method = "ward.D2")
 ```
 
@@ -364,11 +367,12 @@ corrplot(cor_matrix,
 There are no extreme outliers at all or cohort effects. There is a small cluster of points bellow.
 
 ```{r}
-all_data <- rbind(data_scapis, data_igt)
-do_umap(all_data, 
-        metadata_preprocessed |>
-          mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGT")),
-        color = "Cohort")
+hd_all <- hd_initialize(rbind(data_scapis, data_igt), 
+                        metadata |>
+                          mutate(Cohort = if_else(DAid %in% scapis_DAid, "SCAPIS", "IGT")), 
+                        is_wide = TRUE)
+
+hd_auto_umap(hd_all, plot_color = "Cohort")[["umap_plot"]]
 ```
 
 # Processed the joined datasets
@@ -396,10 +400,9 @@ data_scapis_final <- data_scapis_joined |>
          !is.na(CAC),
          !is.na(Carotid_plaque),
          !is.na(T2D),
-         !is.na(IGT),
-         !is.na(Sleep_apnea),
          !is.na(Sex), 
-         !is.na(Age))
+         !is.na(Age),
+         !is.na(BMI))
 
 print(paste("After NA removal we have:", nrow(data_scapis_final), "patients in SCAPIS"))  # We lost 77 patients
 ```
@@ -412,10 +415,10 @@ data_igt_final <- data_igt_joined |>
          !is.na(MASLD), 
          !is.na(CAC),
          !is.na(Carotid_plaque),
-         !is.na(IGT),
-         !is.na(Sleep_apnea),
+         !is.na(T2D),
          !is.na(Sex), 
-         !is.na(Age))
+         !is.na(Age),
+         !is.na(BMI))
 
 print(paste("After NA removal we have:", nrow(data_igt_final), "patients in IGT"))  # We lost 39 patients
 ```
@@ -425,20 +428,29 @@ print(paste("After NA removal we have:", nrow(data_igt_final), "patients in IGT"
 Impute the rest of metadata missing values together with Olink values using KNN imputation (k = 5).
 
 ```{r}
-data_scapis_imputed <- impute_knn(data_scapis_final, exclude_cols = "DAid", show_na_percentage = FALSE)
-data_igt_imputed <- impute_knn(data_igt_final, exclude_cols = "DAid", show_na_percentage = FALSE)
+data_scapis_imputed <- hd_impute_knn(data_scapis_final, verbose = FALSE)
+data_igt_imputed <- hd_impute_knn(data_igt_final, verbose = FALSE)
 ```
 
 # Save data
 
 ```{r}
-save_df(data_scapis_imputed, "scapis_joined_preprocessed", "data/processed_data", file_type = c("rda"))
-save_df(data_igt_imputed, "igt_joined_preprocessed", "data/processed_data", file_type = c("rda"))
-save_df(metadata_preprocessed, "metadata_preprocessed", "data/processed_data", file_type = c("rda"))
+data_scapis <- data_scapis_imputed |> select(-all_of(metadata_cols[-1]))
+metadata_scapis <- data_scapis_imputed |> select(all_of(metadata_cols))
+data_igt <- data_igt_imputed |> select(-all_of(metadata_cols[-1]))
+metadata_igt <- data_igt_imputed |> select(all_of(metadata_cols))
+
+col_names <- colnames(data_scapis[-1]) |> sort() 
+data_scapis <- data_scapis |> select(DAid, all_of(col_names))
+data_igt <- data_igt |> select(DAid, all_of(col_names))
 ```
 
 ```{r}
-save_df(data_scapis_imputed, "scapis_joined_preprocessed", "data/processed_data", file_type = c("csv"))
-save_df(data_igt_imputed, "igt_joined_preprocessed", "data/processed_data", file_type = c("csv"))
-save_df(metadata_preprocessed, "metadata_preprocessed", "data/processed_data", file_type = c("csv"))
+hd_save_data(data_scapis_imputed, "data/processed_data/scapis_joined_preprocessed.csv")
+hd_save_data(data_igt_imputed, "data/processed_data/igt_joined_preprocessed.csv")
+hd_save_data(metadata_preprocessed, "data/processed_data/metadata_preprocessed.csv")
+hd_save_data(data_scapis, "data/processed_data/scapis_preprocessed.csv")
+hd_save_data(data_igt, "data/processed_data/igt_preprocessed.csv")
+hd_save_data(metadata_scapis, "data/processed_data/metadata_scapis.csv")
+hd_save_data(metadata_igt, "data/processed_data/metadata_igt.csv")
 ```
