@@ -242,7 +242,7 @@ top_proteins <- de_all_igt |>
 
 de_all_igt |>
   filter(Feature %in% top_proteins) |>
-  filter(adj.P.Val < 0.05, logFC > 0.1) |> 
+  filter(adj.P.Val < 0.05, abs(logFC) > 0.1) |> 
   select(Disease, Feature, logFC) |> 
   rename(Protein = Feature) |> 
   pivot_wider(names_from = Disease, values_from = logFC) |>
@@ -692,7 +692,7 @@ protein_data <- data_igt |> select(all_of(top_proteins))
 clinical_data <- metadata |> 
   filter(DAid %in% data_igt$DAid) |>
   arrange(match(DAid, data_igt$DAid)) |> 
-  select(all_of(c(metadata_cols, disease_vec))) |> 
+  select(all_of(c(metadata_cols))) |> 
   mutate(Smoke_status = case_when(
     Smoke_status == "NEVER" ~ 0,
     Smoke_status == "EX_SMOKER" ~ 1,
@@ -703,8 +703,7 @@ clinical_data <- metadata |>
     Sex == "F" ~ 0,
     Sex == "M" ~ 1,
     TRUE ~ NA_real_
-  )) |> 
-  mutate(across(all_of(disease_vec), ~ ifelse(. == "0", 0, 1)))
+  ))
   
 
 correlation_matrix <- cor(protein_data, clinical_data, use = "pairwise.complete.obs", method = "spearman")

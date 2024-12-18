@@ -165,6 +165,7 @@ res <- lapply(disease_vec, function(disease) {
                              cv_sets = 10, 
                              mixture = 1,
                              palette = disease_palette,
+                             plot_y_labels = TRUE,
                              verbose = TRUE)
   
   boxplot <- hd_plot_feature_boxplot(obj_igt, 
@@ -390,7 +391,7 @@ UpSetR::upset(upset,
 ## Model feature network
 
 ```{r}
-hd_plot_feature_network(
+network_plot <- hd_plot_feature_network(
   lasso_features_de |> filter(Scaled_Importance >= 0) |> rename(Class = Disease),
   plot_color = "Scaled_Importance",
   class_palette = disease_palette
@@ -464,7 +465,7 @@ names(enrichment_res) <- disease_vec_enrichment
 
 ```{r}
 features <- lasso_features_de |> 
-  filter(Disease %in% c("MASLD", "MS", "Obesity")) |>
+  filter(Disease %in% c("MASLD", "MS", "CAC")) |>
   group_by(Disease) |> 
   arrange(Disease, desc(Scaled_Importance)) |>
   slice_head(n = 5)
@@ -509,13 +510,14 @@ c("Obesity" = "#E7662B",
   "CAC" = "#9E0142")
           
 ```{r}
-
-
-interest_groups <- c("MASLD", "MS_MASLD", "Obesity_MS", "None")
+interest_groups <- c("MASLD", "CAC", "MS_CAC", "MS", "MS_MASLD", "None")
 palette_groups <- c("MASLD" = "#FFD321", 
-                    "None" = "grey90", 
-                    "MS_MASLD" = "#08585A", 
-                    "Obesity_MS" = "#E7662B")
+                    "CAC" = "#9E0142",
+                    "MS_CAC" = "#532D4E",
+                    "MS" = "#08585A",
+                    "MS_MASLD" = "#84963E",
+                    "None" = "grey90")
+
 radar_dat <- radar_data |>
   filter(Disease_Summary %in% interest_groups) |>
   pivot_wider(names_from = Feature, values_from = Value) |>
@@ -532,16 +534,16 @@ colnames(max_row) <- colnames(radar_dat)
 
 radar_dat <- bind_rows(max_row, min_row, radar_dat)
 rownames(radar_dat)[1:2] <- c("1", "2")
-radar_dat <- radar_dat |> slice(match(c("1", "2", c("MASLD", "MS_MASLD", "Obesity_MS", "None")), rownames(radar_dat)))
-color_order <- palette_groups[c("MASLD", "MS_MASLD", "Obesity_MS", "None")]
+radar_dat <- radar_dat |> slice(match(c("1", "2", c("MASLD", "CAC", "MS_CAC", "MS", "MS_MASLD", "None")), rownames(radar_dat)))
+color_order <- palette_groups[c("MASLD", "CAC", "MS_CAC", "MS", "MS_MASLD", "None")]
 colors_alpha <- sapply(color_order, alpha, alpha = 0.5)
 
-plot_filename <- paste0("results/plots/radar_plot_", "MASLD_others", ".png")
-png(plot_filename, width = 600, height = 600)
+plot_filename <- paste0("results/plots/radar_plot_", "MASLD_others", ".pdf")
+pdf(plot_filename, width = 6, height = 6)
 radarchart(radar_dat,
            axistype=1,
            pcol=color_order,
-           pfcol=colors_alpha,
+           #pfcol=colors_alpha,
            plwd=4,
            plty=1,
            cglcol="grey",

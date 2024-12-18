@@ -333,6 +333,8 @@ metadata_preprocessed |>
     values = Status,
     colors = c("lightgrey", "red"),
     annotation_col = c(Age, Sex, BMI),
+    annotation_colors = list(Age = c("#ffEbbb", "#FA4E07"), 
+                             Sex = hd_palettes()[["sex"]]),
     cluster_rows = TRUE,
     cluster_cols = TRUE,
     legend_breaks = c(0, 1),
